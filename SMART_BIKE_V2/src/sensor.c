@@ -16,7 +16,7 @@
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
 #include "esp_timer.h"
-#include "esp_task_wdt.h"        // <-- pour désactiver le Task Watchdog
+#include "esp_task_wdt.h"        // To disable Task Watchdog
 #include "shared.h"               // Shared data structures
 
 static const char *TAG = "SMART_BIKE_RUN";
