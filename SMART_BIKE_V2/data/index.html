@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Smart Bike Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Librairies -->
+  <script src="libs/plotly.min.js"></script>
+  <script src="libs/three.min.js"></script>
+  <script src="libs/GLTFLoader.js"></script>
+
+  <!-- Ton style -->
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Scripts principaux -->
+  <script defer src="index.js"></script>
+</head>
+<body>
+  <div class="container">
+    <header class="topbar">
+      <div class="brand">
+        <img src="images/logo.png" alt="logo" />
+        <span>Smart Bike</span>
+      </div>
+      <nav class="nav-links">
+        <a href="#" class="nav-link" data-layout="live" data-i18n="layout_live">Live</a>
+        <a href="#" class="nav-link" data-layout="analysis" data-i18n="layout_analysis">Analysis</a>
+        <a href="#" class="nav-link" data-layout="files" data-i18n="layout_files">Files</a>
+        <a href="#" class="nav-link" data-layout="rider" data-i18n="layout_rider">Rider</a>
+        <a href="#" class="nav-link" data-layout="coach" data-i18n="layout_coach">Coach</a>
+      </nav>
+      <div class="topbar-actions">
+        <div class="theme-toggler">
+          <span class="active">☀️</span>
+          <span>🌙</span>
+        </div>
+        <div class="ws-status">
+          <span data-i18n="websocket_label">WebSocket:</span>
+          <span id="wsMessage" class="status" data-i18n="wsDisconnected">Disconnected</span>
+        </div>
+        <div class="lang-switch" role="group" aria-label="Language">
+          <button class="lang-btn" data-lang="en">EN</button>
+          <button class="lang-btn" data-lang="fr">FR</button>
+          <button class="lang-btn" data-lang="de">DE</button>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      
+
+      <div id="dashboard_grid" class="quad-grid">
+        <div class="chart-card quad" id="kpi_card">
+          <div class="kpi-grid" id="kpi_grid">
+            <div class="kpi-card">
+              <div class="kpi-title" data-i18n="latest_pressure_title">Latest Pressure</div>
+              <div class="kpi-value" id="latest_pressure">0 N</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-title" data-i18n="samples_title">Samples</div>
+              <div class="kpi-value" id="sample_count">0</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-title" data-i18n="duration_title">Duration</div>
+              <div class="kpi-value" id="duration">0s</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-title">Mean Pressure</div>
+              <div class="kpi-value" id="mean_pressure">0 N</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-title">Max Pressure</div>
+              <div class="kpi-value" id="max_pressure">0 N</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="chart-card quad" id="three_card">
+          <h2 data-i18n="bike_3d">3D Bike</h2>
+          <div class="chart-toolbar">
+            <button id="btn_load_model" class="btn" data-i18n="load_model">Load 3D model</button>
+            <button id="btn_fit_view" class="btn" data-i18n="fit_view">Fit view</button>
+            <input id="file_load_model" type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json" style="display:none" />
+          </div>
+          <div id="three_container" class="three-container"></div>
+        </div>
+
+        <div class="chart-card quad" id="chart_pressure_right_card">
+          <h2 data-i18n="right_handle">Right Handle (Sensors 1-4)</h2>
+          <div class="chart-toolbar">
+            <button id="btn_filters" class="btn" data-i18n="filters">Filters</button>
+            <button id="btn_import_run" class="btn" data-i18n="import_run">Import run (CSV/TSV)</button>
+            <input id="file_import" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" style="display:none" />
+            <button id="toggleSim" class="btn" data-i18n="simulation_off">Simulation: OFF</button>
+            <button id="btn_clear_chart" class="btn" data-i18n="clear_chart">Clear chart</button>
+          </div>
+          <div id="pressure_chart_right" class="chart"></div>
+        </div>
+
+        <div class="chart-card quad" id="chart_pressure_left_card">
+          <h2 data-i18n="left_handle">Left Handle (Sensors 5-8)</h2>
+          <div id="pressure_chart_left" class="chart"></div>
+        </div>
+
+        <div class="chart-card quad" id="corr_card" style="display: none;">
+          <h2 data-i18n="correlation_matrix">Correlation Matrix</h2>
+          <div id="corr_matrix" class="chart"></div>
+        </div>
+      </div>
+
+      <!-- Filters Modal -->
+      <div id="filters_modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="filters_title">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3 id="filters_title" data-i18n="filters">Filters</h3>
+            <button id="filters_close" class="modal-close" aria-label="Close">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="controls-row" id="row_live">
+              <label class="switch">
+                <input type="checkbox" id="live_mode" checked>
+                <span class="slider-round"></span>
+              </label>
+              <span id="live_mode_label" data-i18n="live_mode">Live Mode</span>
+              <button id="btn_refresh_runs" class="btn" data-i18n="refresh_runs">Refresh Runs</button>
+              <select id="run_select" class="select">
+                <option value="" data-i18n="select_run_placeholder">Select a run…</option>
+              </select>
+              <button id="btn_load_run" class="btn" data-i18n="plot_run">Plot Run</button>
+            </div>
+            <div class="controls-row" id="row_runner">
+              <label for="runner_filter" data-i18n="runner">Runner</label>
+              <select id="runner_filter" class="select">
+                <option value="" data-i18n="runner_all">All</option>
+              </select>
+              <label for="rename_input" data-i18n="rename_to">Rename to</label>
+              <input id="rename_input" class="select" style="width:200px" placeholder="New filename" />
+              <button id="btn_rename_run" class="btn" data-i18n="rename">Rename</button>
+            </div>
+            <div class="controls-row" id="row_axes">
+              <label for="x_field" data-i18n="x_axis_label">X:</label>
+              <select id="x_field" class="select"></select>
+              <label for="y_field" data-i18n="y_axis_label">Y:</label>
+              <select id="y_field" class="select"></select>
+              <label for="y2_field" data-i18n="y2_axis_label">Y2:</label>
+              <select id="y2_field" class="select"></select>
+              <label class="switch" title="Dual axis">
+                <input type="checkbox" id="dual_axis">
+                <span class="slider-round"></span>
+              </label>
+              <span data-i18n="dual_axis">Dual axis</span>
+            </div>
+            <div class="controls-row" id="row_smoothing">
+              <label for="smoothing_mode" data-i18n="smoothing">Smoothing</label>
+              <select id="smoothing_mode" class="select">
+                <option value="none" data-i18n="smoothing_none">None</option>
+                <option value="ma" data-i18n="smoothing_ma">Moving Avg</option>
+                <option value="ewma" data-i18n="smoothing_ewma">EWMA</option>
+              </select>
+              <label for="ma_window" data-i18n="ma_window">Window</label>
+              <input id="ma_window" type="number" min="2" max="200" value="5" class="select" style="width:80px" />
+              <label for="ewma_alpha" data-i18n="ewma_alpha">Alpha</label>
+              <input id="ewma_alpha" type="number" step="0.05" min="0.01" max="0.99" value="0.30" class="select" style="width:90px" />
+
+              <label for="downsample_stride" data-i18n="downsample">Downsample</label>
+              <input id="downsample_stride" type="number" min="1" max="100" value="1" class="select" style="width:80px" />
+              <label for="max_points" data-i18n="max_points">Max points</label>
+              <input id="max_points" type="number" min="100" max="20000" value="1000" class="select" style="width:100px" />
+            </div>
+            <div class="controls-row" id="row_thresholds">
+              <label for="lower_threshold" data-i18n="lower_threshold">Lower</label>
+              <input id="lower_threshold" type="number" step="0.1" class="select" style="width:100px" />
+              <label for="upper_threshold" data-i18n="upper_threshold">Upper</label>
+              <input id="upper_threshold" type="number" step="0.1" class="select" style="width:100px" />
+              <label class="switch">
+                <input type="checkbox" id="zones_toggle">
+                <span class="slider-round"></span>
+              </label>
+              <span data-i18n="show_zones">Show zones</span>
+            </div>
+          </div>
+        </div>
+
+      </main>
+    </div>
+</body>
+</html>
