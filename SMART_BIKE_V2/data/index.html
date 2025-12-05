@@ -9,6 +9,8 @@
   <script src="libs/plotly.min.js"></script>
   <script src="libs/three.min.js"></script>
   <script src="libs/GLTFLoader.js"></script>
+  <!-- JSZip for creating ZIP files -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
   <!-- Ton style -->
   <link rel="stylesheet" href="style.css" />
@@ -21,15 +23,19 @@
     <header class="topbar">
       <div class="brand">
         <img src="images/logo.png" alt="logo" />
-        <span>Smart Bike</span>
+        <span>Smart Bike - Live</span>
       </div>
-      <nav class="nav-links">
-        <a href="#" class="nav-link" data-layout="live" data-i18n="layout_live">Live</a>
-        <a href="#" class="nav-link" data-layout="analysis" data-i18n="layout_analysis">Analysis</a>
-        <a href="#" class="nav-link" data-layout="files" data-i18n="layout_files">Files</a>
-        <a href="#" class="nav-link" data-layout="rider" data-i18n="layout_rider">Rider</a>
-        <a href="#" class="nav-link" data-layout="coach" data-i18n="layout_coach">Coach</a>
-      </nav>
+      
+      <!-- Chart control buttons moved to header -->
+      <div class="chart-controls">
+        <button id="btn_download_all" class="btn" data-i18n="download_all">Download All CSV</button>
+        <button id="btn_filters" class="btn" data-i18n="filters">Filters</button>
+        <button id="btn_import_run" class="btn" data-i18n="import_run">Import run (CSV/TSV)</button>
+        <input id="file_import" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" style="display:none" />
+        <button id="toggleSim" class="btn" data-i18n="simulation_off">Simulation: OFF</button>
+        <button id="btn_clear_chart" class="btn" data-i18n="clear_chart">Clear chart</button>
+      </div>
+      
       <div class="topbar-actions">
         <div class="theme-toggler">
           <span class="active">☀️</span>
@@ -88,13 +94,6 @@
 
         <div class="chart-card quad" id="chart_pressure_right_card">
           <h2 data-i18n="right_handle">Right Handle (Sensors 1-4)</h2>
-          <div class="chart-toolbar">
-            <button id="btn_filters" class="btn" data-i18n="filters">Filters</button>
-            <button id="btn_import_run" class="btn" data-i18n="import_run">Import run (CSV/TSV)</button>
-            <input id="file_import" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" style="display:none" />
-            <button id="toggleSim" class="btn" data-i18n="simulation_off">Simulation: OFF</button>
-            <button id="btn_clear_chart" class="btn" data-i18n="clear_chart">Clear chart</button>
-          </div>
           <div id="pressure_chart_right" class="chart"></div>
         </div>
 

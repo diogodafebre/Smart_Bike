@@ -17,15 +17,13 @@
 }
 .topbar .brand { display:flex; align-items:center; gap:0.5rem; font-weight:600; }
 .topbar .brand img { width:28px; height:28px; }
-.topbar .nav-links { display:flex; gap:0.75rem; flex-wrap:wrap; }
-.topbar .nav-links a { text-decoration:none; color:inherit; padding:0.25rem 0.5rem; border-radius:6px; }
-.topbar .nav-links a.active { background: var(--color-muted, #f3f4f6); }
+.topbar .chart-controls { display:flex; gap:0.5rem; flex-wrap:wrap; margin-left: 1rem; }
 .topbar .topbar-actions { margin-left:auto; display:flex; align-items:center; gap:0.5rem; }
 /* WebSocket status pill */
 .ws-status { display:flex; align-items:center; gap:0.4rem; font-size: 0.85rem; padding: 0.2rem 0.5rem; background: var(--color-white); border: 1px solid var(--color-info-light); border-radius: 999px; color: var(--color-dark-variant); }
 .ws-status .status { font-weight: 600; }
 
-main { padding: 1rem; }
+main { padding: 0.5rem; }
 
 /* Fixed 2x2 quad layout */
 .quad-grid {
@@ -33,7 +31,7 @@ main { padding: 1rem; }
   grid-template-columns: 1fr 1fr;
   grid-template-rows: minmax(300px, 1fr) minmax(300px, 1fr);
   gap: 1rem;
-  height: calc(100vh - 120px); /* viewport minus topbar and padding */
+  height: calc(100vh - 80px); /* viewport minus topbar and minimal padding */
 }
 .quad { min-width: 0; display: flex; flex-direction: column; }
 
