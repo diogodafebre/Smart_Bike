@@ -292,6 +292,7 @@ function logToConsole(msg) {
 // Buttons
 const simBtn = document.getElementById('toggleSim');
 const clearChartBtn = document.getElementById('btn_clear_chart');
+const downloadAllBtn = document.getElementById('btn_download_all');
 
 function sendToggle(label, value) {
   if (wSocket && wSocket.readyState === WebSocket.OPEN) {
@@ -387,6 +388,128 @@ window.addEventListener('load', () => {
   });
   langButtons.forEach(btn => btn.addEventListener('click', () => setLanguage(btn.dataset.lang)));
   setLanguage(loadLangPref());
+  
+  // Download all CSV files
+  if (downloadAllBtn) {
+    downloadAllBtn.addEventListener('click', async () => {
+      console.log('Download All button clicked');
+      
+      // Check if JSZip is available
+      if (typeof JSZip === 'undefined') {
+        alert('ZIP library not loaded. Downloading files individually...');
+        // Fallback to individual downloads
+        downloadFilesIndividually();
+        return;
+      }
+      
+      try {
+        console.log('Fetching run list from /api/runs');
+        downloadAllBtn.disabled = true;
+        downloadAllBtn.textContent = 'Downloading...';
+        
+        const resp = await fetch('/api/runs');
+        if (!resp.ok) {
+          console.error('Failed to fetch run list:', resp.status);
+          throw new Error('Failed to fetch run list');
+        }
+        const files = await resp.json();
+        console.log('Found files:', files);
+        
+        if (files.length === 0) {
+          alert('No CSV files found on SD card');
+          downloadAllBtn.disabled = false;
+          downloadAllBtn.textContent = 'Download All CSV';
+          return;
+        }
+        
+        // Create ZIP file
+        const zip = new JSZip();
+        
+        // Fetch all files and add to ZIP
+        for (let i = 0; i < files.length; i++) {
+          const filename = files[i];
+          const url = `/api/runs/${filename}`;
+          console.log(`Fetching file ${i+1}/${files.length}: ${filename}`);
+          downloadAllBtn.textContent = `Downloading ${i+1}/${files.length}...`;
+          
+          const fileResp = await fetch(url);
+          if (fileResp.ok) {
+            const blob = await fileResp.blob();
+            zip.file(filename, blob);
+          } else {
+            console.error(`Failed to download ${filename}`);
+          }
+          
+          // Small delay to avoid overwhelming ESP32
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        console.log('Creating ZIP file...');
+        downloadAllBtn.textContent = 'Creating ZIP...';
+        
+        // Generate ZIP file
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        
+        // Create download link
+        const url = URL.createObjectURL(zipBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `SmartBike_Runs_${new Date().toISOString().slice(0,10)}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        console.log(`ZIP download complete: ${files.length} files`);
+        alert(`Downloaded ${files.length} CSV file(s) as ZIP`);
+        
+      } catch (err) {
+        console.error('Error downloading files:', err);
+        alert('Error downloading files: ' + err.message);
+      } finally {
+        downloadAllBtn.disabled = false;
+        downloadAllBtn.textContent = 'Download All CSV';
+      }
+    });
+  } else {
+    console.warn('Download All button not found in DOM');
+  }
+  
+  // Fallback function for individual downloads
+  async function downloadFilesIndividually() {
+    try {
+      const resp = await fetch('/api/runs');
+      if (!resp.ok) throw new Error('Failed to fetch run list');
+      const files = await resp.json();
+      
+      if (files.length === 0) {
+        alert('No CSV files found on SD card');
+        return;
+      }
+      
+      for (let i = 0; i < files.length; i++) {
+        const filename = files[i];
+        const url = `/api/runs/${filename}`;
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        
+        if (i < files.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+      }
+      
+      alert(`Downloaded ${files.length} CSV file(s)`);
+    } catch (err) {
+      console.error('Error downloading files:', err);
+      alert('Error downloading files: ' + err.message);
+    }
+  }
+  
   // Sidebar nav
   navLinks.forEach(link => link.addEventListener('click', (e) => {
     e.preventDefault();

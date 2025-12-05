@@ -13,6 +13,7 @@
 #include "nvs_flash.h"
 #include "esp_mac.h"
 #include "shared.h"  // Access to sensor data
+#include "mdns.h"
 
 static const char* TAG = "SmartBike";
 static const char* AP_SSID = "SmartBike"; // open AP (no password)
@@ -566,6 +567,34 @@ static httpd_handle_t start_webserver(void) {
   return NULL;
 }
 
+static void start_mdns_service(void)
+{
+    // Initialize mDNS service
+    esp_err_t err = mdns_init();
+    if (err) {
+        ESP_LOGE(TAG, "MDNS Init failed: %d", err);
+        return;
+    }
+
+    // Set hostname (this results in smartbike.local)
+    mdns_hostname_set("smartbike");
+    
+    // Set default instance name
+    mdns_instance_name_set("SmartBike Web Server");
+
+    // Structure with TXT records (optional, but good for discovery apps)
+    mdns_txt_item_t serviceTxtData[] = {
+        {"board", "esp32"},
+        {"u", "user"}
+    };
+
+    // Initialize the service: _http._tcp
+    // This allows browsers to find the device
+    ESP_ERROR_CHECK(mdns_service_add("SmartBike-WebServer", "_http", "_tcp", 80, serviceTxtData, 2));
+    
+    ESP_LOGI(TAG, "mDNS started. You can now access: http://smartbike.local");
+}
+
 void web_init(void) {
   // Initialize NVS (required for WiFi)
   esp_err_t ret = nvs_flash_init();
@@ -580,6 +609,9 @@ void web_init(void) {
   
   // Initialize WiFi AP
   init_wifi_ap();
+
+  // Start mDNS service for easy access
+  start_mdns_service();
   
   // Start web server
   start_webserver();

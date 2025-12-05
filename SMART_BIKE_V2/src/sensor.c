@@ -50,16 +50,26 @@ static const char *TAG = "SMART_BIKE_RUN";
 #define SAMPLE_PERIOD_MS   50   // 50 ms between acquisitions
 #define MUX_SETTLE_MS        4   // MUX settling time
 #define LED_BLINK_MS       200   // LED blink period (200ms for visible blinking)
+#define LED_CALIB_BLINK_MS 500   // LED blink period during calibration (faster)
 #define BTN_DEBOUNCE_MS     50   // Button debounce time
+#define BTN_LONG_PRESS_MS 1000   // Long press threshold for calibration mode
 #define VREF_MV           3300   // approx 3.3 V
 
 // Macros LED (active HIGH)
-static inline void led_on(void)  { gpio_set_level(PIN_LED_RUN, 1); }
-static inline void led_off(void) { gpio_set_level(PIN_LED_RUN, 0); }
+static uint8_t g_led_state = 0;  // Track LED state manually
+
+static inline void led_on(void)  { 
+    g_led_state = 1; 
+    gpio_set_level(PIN_LED_RUN, 1); 
+}
+static inline void led_off(void) { 
+    g_led_state = 0; 
+    gpio_set_level(PIN_LED_RUN, 0); 
+}
 static inline void led_toggle(void)
 {
-    int lvl = gpio_get_level(PIN_LED_RUN);
-    gpio_set_level(PIN_LED_RUN, !lvl);
+    g_led_state = !g_led_state;
+    gpio_set_level(PIN_LED_RUN, g_led_state);
 }
 
 // État global RUN (exported via shared.h)
@@ -67,6 +77,14 @@ volatile bool   g_run_active          = false;
 volatile int    g_run_id              = 0;
 static FILE    *g_run_file            = NULL;
 static int      g_samples_since_flush = 0;
+
+// System state (exported via shared.h)
+volatile system_state_t g_system_state = STATE_IDLE;
+
+// Calibration data (exported via shared.h)
+calibration_data_t g_calibration = {
+    .is_calibrated = false
+};
 
 // Latest sensor data (exported via shared.h)
 sensor_data_t g_latest_sensor_data = {0};
@@ -76,12 +94,15 @@ static bool          g_sd_ready = false;
 static sdmmc_card_t *g_sd_card  = NULL;
 
 // Timing
-static int64_t g_run_start_us       = 0;
-static int64_t g_last_sample_us     = 0;
-static int64_t g_last_led_toggle_us = 0;
+static int64_t g_run_start_us         = 0;
+static int64_t g_last_sample_us       = 0;
+static int64_t g_last_calib_sample_us = 0;
+static int64_t g_last_led_toggle_us   = 0;
 
 // Button
 static int     g_btn_stable_state   = 1;    // pull-up -> idle = HIGH
+static int64_t g_btn_press_start_us = 0;    // When button was pressed
+static bool    g_btn_long_press_handled = false;
 
 // ==== Util GPIO / MUX ====
 
@@ -221,6 +242,86 @@ static int find_next_run_index(void)
     }
 }
 
+// ==== Calibration Functions ====
+
+static void start_calibration(void)
+{
+    ESP_LOGI(TAG, "=== ENTERING CALIBRATION MODE ===");
+    ESP_LOGI(TAG, "Instructions:");
+    ESP_LOGI(TAG, "1. Release all sensors (idle position)");
+    ESP_LOGI(TAG, "2. Press all sensors to maximum");
+    ESP_LOGI(TAG, "3. Press button for 1s to save calibration");
+    
+    g_system_state = STATE_CALIBRATING;
+    
+    // Initialize min to high values and max to low values
+    for (int i = 0; i < 8; i++) {
+        g_calibration.min_values[i] = 3.3f;  // Start high
+        g_calibration.max_values[i] = 0.0f;  // Start low
+    }
+    
+    // Initialize timing and LED
+    int64_t now_us = esp_timer_get_time();
+    g_last_led_toggle_us = now_us;
+    g_last_calib_sample_us = now_us;
+    led_on();
+    
+    ESP_LOGI(TAG, "Calibration LED should blink every %dms", LED_CALIB_BLINK_MS);
+}
+
+static void stop_calibration(void)
+{
+    ESP_LOGI(TAG, "=== CALIBRATION COMPLETE ===");
+    
+    // Display calibration results
+    for (int i = 0; i < 8; i++) {
+        ESP_LOGI(TAG, "Sensor %d: MIN=%.3fV, MAX=%.3fV", 
+                 i+1, 
+                 g_calibration.min_values[i], 
+                 g_calibration.max_values[i]);
+    }
+    
+    g_calibration.is_calibrated = true;
+    g_system_state = STATE_IDLE;
+    led_off();
+}
+
+// Apply calibration to raw voltage reading
+static float apply_calibration(uint8_t sensor_idx, float raw_voltage)
+{
+    if (!g_calibration.is_calibrated) {
+        return raw_voltage;  // No calibration, return raw value
+    }
+    
+    float min_val = g_calibration.min_values[sensor_idx];
+    float max_val = g_calibration.max_values[sensor_idx];
+    
+    // Avoid division by zero
+    if (max_val - min_val < 0.01f) {
+        return 0.0f;
+    }
+    
+    // Scale from [min_val, max_val] to [0, 3.3V]
+    float calibrated = ((raw_voltage - min_val) / (max_val - min_val)) * 3.3f;
+    
+    // Clamp to valid range
+    if (calibrated < 0.0f) calibrated = 0.0f;
+    if (calibrated > 3.3f) calibrated = 3.3f;
+    
+    return calibrated;
+}
+
+// Update calibration min/max during calibration mode
+static void update_calibration(uint8_t sensor_idx, float voltage)
+{
+    if (voltage < g_calibration.min_values[sensor_idx]) {
+        g_calibration.min_values[sensor_idx] = voltage;
+    }
+    if (voltage > g_calibration.max_values[sensor_idx]) {
+        g_calibration.max_values[sensor_idx] = voltage;
+    }
+}
+
 // ==== RUN start/stop ====
 
 static void stop_run(void);
@@ -266,6 +367,7 @@ static void start_run(void)
     led_on();
 
     g_run_active = true;
+    g_system_state = STATE_RUNNING;
 }
 
 static void stop_run(void)
@@ -279,6 +381,7 @@ static void stop_run(void)
         }
     }
     g_run_active = false;
+    g_system_state = STATE_IDLE;
     
     // Clear sensor data to prevent webpage from showing zeros
     memset(&g_latest_sensor_data, 0, sizeof(sensor_data_t));
@@ -289,7 +392,7 @@ static void stop_run(void)
 
 // ==== Button + LED ====
 
-// Button handling (toggle RUN on falling edge)
+// Button handling with short/long press detection
 static void handle_button(int64_t now_us)
 {
     static int      last_reading = 1;
@@ -307,30 +410,71 @@ static void handle_button(int64_t now_us)
         if (reading != g_btn_stable_state) {
             g_btn_stable_state = reading;
 
-            // falling edge (1 -> 0): button press
+            // Falling edge (1 -> 0): button pressed
             if (g_btn_stable_state == 0) {
-                if (!g_run_active) {
-                    start_run();
-                } else {
-                    stop_run();
+                g_btn_press_start_us = now_us;
+                g_btn_long_press_handled = false;
+            }
+            // Rising edge (0 -> 1): button released
+            else {
+                int64_t press_duration_ms = (now_us - g_btn_press_start_us) / 1000;
+                
+                // Only handle short press if long press wasn't already handled
+                if (!g_btn_long_press_handled && press_duration_ms < BTN_LONG_PRESS_MS) {
+                    // Short press: toggle RUN mode (only when not calibrating)
+                    if (g_system_state != STATE_CALIBRATING) {
+                        if (!g_run_active) {
+                            start_run();
+                        } else {
+                            stop_run();
+                        }
+                    }
                 }
             }
         }
     }
+    
+    // Check for long press while button is held down
+    if (g_btn_stable_state == 0 && !g_btn_long_press_handled) {
+        int64_t press_duration_ms = (now_us - g_btn_press_start_us) / 1000;
+        
+        if (press_duration_ms >= BTN_LONG_PRESS_MS) {
+            g_btn_long_press_handled = true;
+            
+            // Long press: toggle calibration mode
+            if (g_system_state == STATE_CALIBRATING) {
+                stop_calibration();
+            } else if (g_system_state == STATE_IDLE) {
+                start_calibration();
+            }
+            // Ignore long press during RUN mode
+        }
+    }
 }
 
-// LED blinking during RUN
+// LED control during different states
 static void handle_led(int64_t now_us)
 {
-    if (!g_run_active) {
+    if (g_system_state == STATE_IDLE) {
         led_off();
         return;
     }
+    
+    // During RUN: LED stays on (solid)
+    if (g_system_state == STATE_RUNNING) {
+        if (g_led_state == 0) {
+            led_on();
+        }
+        return;
+    }
 
-    int64_t delta_ms = (now_us - g_last_led_toggle_us) / 1000;
-    if (delta_ms >= LED_BLINK_MS) {
-        g_last_led_toggle_us = now_us;
-        led_toggle();
+    // During CALIBRATION: LED blinks
+    if (g_system_state == STATE_CALIBRATING) {
+        int64_t delta_ms = (now_us - g_last_led_toggle_us) / 1000;
+        if (delta_ms >= LED_CALIB_BLINK_MS) {
+            g_last_led_toggle_us = now_us;
+            led_toggle();
+        }
     }
 }
 
@@ -371,13 +515,17 @@ static void sample_and_log(int64_t now_us)
         esp_err_t errA;
         read_fsr_pair(&mvB, &mvA, &errA);
 
-        float vB = mvB / 1000.0f;
-        float vA = mvA / 1000.0f;
+        float vB_raw = mvB / 1000.0f;
+        float vA_raw = mvA / 1000.0f;
 
         uint8_t capteurB = (uint8_t)(ch + 1);  // 1..4 right hand
         uint8_t capteurA = (uint8_t)(ch + 5);  // 5..8 left hand
 
-        // Store in global shared data structure
+        // Apply calibration
+        float vB = apply_calibration(capteurB - 1, vB_raw);
+        float vA = apply_calibration(capteurA - 1, vA_raw);
+
+        // Store calibrated values in global shared data structure
         g_latest_sensor_data.voltages[capteurB - 1] = vB;  // index 0-3
         g_latest_sensor_data.voltages[capteurA - 1] = vA;  // index 4-7
 
@@ -424,6 +572,36 @@ static void sample_and_log(int64_t now_us)
     }
 }
 
+// Calibration sampling (no logging, just update min/max)
+static void sample_for_calibration(void)
+{
+    // 4 MUX positions -> 8 sensors
+    for (uint8_t ch = 0; ch < 4; ++ch) {
+        mux_select(ch);
+        vTaskDelay(pdMS_TO_TICKS(MUX_SETTLE_MS));
+
+        int mvB = 0, mvA = 0;
+        esp_err_t errA;
+        read_fsr_pair(&mvB, &mvA, &errA);
+
+        float vB = mvB / 1000.0f;
+        float vA = mvA / 1000.0f;
+
+        uint8_t capteurB = (uint8_t)(ch + 1);  // 1..4 right hand
+        uint8_t capteurA = (uint8_t)(ch + 5);  // 5..8 left hand
+
+        // Update calibration min/max for both sensors
+        update_calibration(capteurB - 1, vB);
+        update_calibration(capteurA - 1, vA);
+
+        // Store raw values for display
+        g_latest_sensor_data.voltages[capteurB - 1] = vB;
+        g_latest_sensor_data.voltages[capteurA - 1] = vA;
+    }
+    
+    g_latest_sensor_data.valid = true;
+}
+
 // ==== Sensor Module Functions ====
 
 void sensor_init(void)
@@ -460,12 +638,32 @@ void sensor_task(void *pvParameters)
         handle_button(now_us);
         handle_led(now_us);
 
-        if (g_run_active) {
-            int64_t delta_ms = (now_us - g_last_sample_us) / 1000;
-            if (delta_ms >= SAMPLE_PERIOD_MS) {
-                g_last_sample_us = now_us;
-                sample_and_log(now_us);
-            }
+        // State machine for different modes
+        switch (g_system_state) {
+            case STATE_IDLE:
+                // Do nothing, just monitor button
+                break;
+                
+            case STATE_RUNNING:
+                if (g_run_active) {
+                    int64_t delta_ms = (now_us - g_last_sample_us) / 1000;
+                    if (delta_ms >= SAMPLE_PERIOD_MS) {
+                        g_last_sample_us = now_us;
+                        sample_and_log(now_us);
+                    }
+                }
+                break;
+                
+            case STATE_CALIBRATING:
+                // Sample every 100ms to find min/max
+                {
+                    int64_t delta_ms = (now_us - g_last_calib_sample_us) / 1000;
+                    if (delta_ms >= 100) {
+                        g_last_calib_sample_us = now_us;
+                        sample_for_calibration();
+                    }
+                }
+                break;
         }
 
         // Let FreeRTOS breathe
