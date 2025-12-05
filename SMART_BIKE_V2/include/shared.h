@@ -4,9 +4,15 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// Sensor data structure - 8 sensors (4 per hand)
+// Sensor data structure - 8 sensors (4 per hand) + ICM-20948 (gyro + accel)
 typedef struct {
     float voltages[8];      // Voltages for sensors 1-8 (in Volts)
+    float accel_x;          // Accelerometer X-axis (m/s²)
+    float accel_y;          // Accelerometer Y-axis (m/s²)
+    float accel_z;          // Accelerometer Z-axis (m/s²)
+    float gyro_x;           // Gyroscope X-axis (degrees/sec)
+    float gyro_y;           // Gyroscope Y-axis (degrees/sec)
+    float gyro_z;           // Gyroscope Z-axis (degrees/sec)
     uint32_t timestamp_ms;  // Time since run start (in ms)
     bool valid;             // Data validity flag
 } sensor_data_t;
