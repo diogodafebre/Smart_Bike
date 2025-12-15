@@ -70,4 +70,6 @@ def prepare_filesystem(*args, **kwargs):
 
 # Hook into the filesystem build process
 env.AddPreAction("$BUILD_DIR/spiffs.bin", prepare_filesystem)
+# Also hook into the uploadfs target to ensure data/ is created before upload
+env.AddPreAction("uploadfs", prepare_filesystem)
 

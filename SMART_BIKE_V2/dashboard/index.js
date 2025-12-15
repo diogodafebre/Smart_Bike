@@ -77,6 +77,138 @@ const modelSelect = document.getElementById('model_select');
 const btnLoadHandlebar = document.getElementById('btn_load_handlebar');
 const fileLoadHandlebar = document.getElementById('file_load_handlebar');
 
+// Profile / Settings UI
+const btnProfile = document.getElementById('btn_profile');
+const profileModal = document.getElementById('profile_modal');
+const profileClose = document.getElementById('profile_close');
+const profileSelect = document.getElementById('profile_select');
+const btnSetActive = document.getElementById('btn_set_active');
+const newRunnerName = document.getElementById('new_runner_name');
+const btnCreateRunner = document.getElementById('btn_create_runner');
+const unsortedList = document.getElementById('unsorted_list');
+const profileRunsList = document.getElementById('profile_runs_list');
+const btnMoveSelected = document.getElementById('btn_move_selected');
+const renameRunInput = document.getElementById('rename_run_input');
+const btnRenameProfileRun = document.getElementById('btn_rename_profile_run');
+const btnDeleteProfileRun = document.getElementById('btn_delete_profile_run');
+
+const RESERVED_UNSORTED = 'unsorted_run';
+
+function showProfileModal() {
+  if (!profileModal) return;
+  profileModal.classList.remove('hidden');
+  refreshProfilesUI();
+}
+function hideProfileModal() { if (profileModal) profileModal.classList.add('hidden'); }
+
+async function apiGetJSON(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.json();
+}
+async function apiPostForm(url, data) {
+  const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(data).toString() });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.json().catch(()=>({ok:true}));
+}
+
+async function refreshProfilesUI() {
+  try {
+    // Populate runners
+    const runnersInfo = await apiGetJSON('/api/runners');
+    const runners = Array.isArray(runnersInfo.runners) ? runnersInfo.runners : [];
+    const active = runnersInfo.active || '';
+    profileSelect.innerHTML = '';
+    // Show only real runners (exclude reserved like 'models')
+    for (const r of runners) {
+      if (r === 'models') continue;
+      const opt = document.createElement('option');
+      opt.value = r; opt.textContent = r; if (r === active) opt.selected = true; profileSelect.appendChild(opt);
+    }
+    // Populate lists
+    await refreshRunsLists();
+  } catch (e) {
+    console.error('Failed loading runners:', e);
+  }
+}
+
+async function refreshRunsLists() {
+  try {
+    // Unsorted
+    const unsorted = await apiGetJSON(`/api/runs-in?runner=${encodeURIComponent(RESERVED_UNSORTED)}`);
+    unsortedList.innerHTML = '';
+    for (const f of unsorted) {
+      const opt = document.createElement('option');
+      opt.value = f; opt.textContent = f; unsortedList.appendChild(opt);
+    }
+    // Selected profile
+    const prof = profileSelect.value;
+    const profRuns = prof ? await apiGetJSON(`/api/runs-in?runner=${encodeURIComponent(prof)}`) : [];
+    profileRunsList.innerHTML = '';
+    for (const f of profRuns) {
+      const opt = document.createElement('option');
+      opt.value = f; opt.textContent = f; profileRunsList.appendChild(opt);
+    }
+  } catch (e) {
+    console.error('Failed loading runs lists:', e);
+  }
+}
+
+btnProfile && btnProfile.addEventListener('click', showProfileModal);
+profileClose && profileClose.addEventListener('click', hideProfileModal);
+profileSelect && profileSelect.addEventListener('change', refreshRunsLists);
+
+btnSetActive && btnSetActive.addEventListener('click', async () => {
+  const prof = profileSelect.value;
+  if (!prof) return;
+  try { await apiPostForm('/api/active-runner', { runner: prof }); } catch (e) { console.error(e); }
+});
+
+btnCreateRunner && btnCreateRunner.addEventListener('click', async () => {
+  const name = (newRunnerName.value || '').trim();
+  if (!name) return;
+  try { await apiPostForm('/api/create-runner', { name }); newRunnerName.value=''; await refreshProfilesUI(); }
+  catch(e){ console.error(e); }
+});
+
+btnMoveSelected && btnMoveSelected.addEventListener('click', async () => {
+  const prof = profileSelect.value; if (!prof) return;
+  const selected = Array.from(unsortedList.selectedOptions).map(o=>o.value);
+  for (const fname of selected) {
+    try {
+      await apiPostForm('/api/move-run', { src: `${RESERVED_UNSORTED}/${fname}`, dst: `${prof}/${fname}` });
+    } catch (e) { console.error('Move failed for', fname, e); }
+  }
+  await refreshRunsLists();
+});
+
+btnRenameProfileRun && btnRenameProfileRun.addEventListener('click', async () => {
+  const prof = profileSelect.value; if (!prof) return;
+  const selected = profileRunsList.selectedOptions;
+  if (selected.length !== 1) { console.log('Select exactly one run to rename'); return; }
+  const oldName = selected[0].value;
+  const newName = (renameRunInput.value || '').trim();
+  if (!newName) { console.log('Enter a new name'); return; }
+  try {
+    await apiPostForm('/api/rename-run', { folder: prof, old: oldName, new: newName });
+    renameRunInput.value = '';
+    await refreshRunsLists();
+  } catch (e) { console.error('Rename failed', e); }
+});
+
+btnDeleteProfileRun && btnDeleteProfileRun.addEventListener('click', async () => {
+  const prof = profileSelect.value; if (!prof) return;
+  const selected = Array.from(profileRunsList.selectedOptions).map(o=>o.value);
+  if (selected.length === 0) { console.log('Select at least one run to delete'); return; }
+  if (!confirm(`Delete ${selected.length} run(s)?`)) return;
+  for (const fname of selected) {
+    try {
+      await apiPostForm('/api/delete-run', { folder: prof, file: fname });
+    } catch (e) { console.error('Delete failed for', fname, e); }
+  }
+  await refreshRunsLists();
+});
+
 // Three.js state
 let threeScene = null, threeRenderer = null, threeCamera = null, bikeModel = null, bikePivot = null, threeFrame = null;
 let oriYaw = 0, oriPitch = 0, oriRoll = 0; // radians from sensor data
@@ -391,6 +523,33 @@ function applyChartTheme() {
   };
   Plotly.relayout(chartDivRight, update);
   Plotly.relayout(chartDivLeft, update);
+  
+  // Update handlebar 3D scene background
+  if (handlebarScene) {
+    const isDark = document.body.classList.contains('dark-theme-variables');
+    handlebarScene.background = new THREE.Color(isDark ? 0x1a1a1a : 0xf0f0f0);
+  }
+}
+
+function loadThemePreference() {
+  const savedTheme = localStorage.getItem('theme');
+  // Default to light theme if no preference
+  if (savedTheme === 'dark') {
+    document.body.classList.add('dark-theme-variables');
+    themeToggler.querySelector('span:nth-child(1)').classList.remove('active');
+    themeToggler.querySelector('span:nth-child(2)').classList.add('active');
+  } else {
+    // Ensure light theme is active (default)
+    document.body.classList.remove('dark-theme-variables');
+    themeToggler.querySelector('span:nth-child(1)').classList.add('active');
+    themeToggler.querySelector('span:nth-child(2)').classList.remove('active');
+  }
+  applyChartTheme();
+}
+
+function saveThemePreference() {
+  const isDark = document.body.classList.contains('dark-theme-variables');
+  localStorage.setItem('theme', isDark ? 'dark' : 'light');
 }
 
 themeToggler.addEventListener('click', () => {
@@ -398,11 +557,12 @@ themeToggler.addEventListener('click', () => {
   themeToggler.querySelector('span:nth-child(1)').classList.toggle('active');
   themeToggler.querySelector('span:nth-child(2)').classList.toggle('active');
   applyChartTheme();
+  saveThemePreference();
 });
 
 // Init
 window.addEventListener('load', () => {
-  applyChartTheme();
+  loadThemePreference();
   connect();
   if (btnRefreshRuns) btnRefreshRuns.addEventListener('click', listRuns);
   if (btnLoadRun) btnLoadRun.addEventListener('click', plotSelectedRun);
@@ -1409,8 +1569,8 @@ function frameObject(object3D) {
   const fov = threeCamera.fov * (Math.PI / 180);
   const fitDist = (maxDim/2) / Math.tan(fov/2);
   // Place camera to the side of the bike (-90° angle on X axis) to view it from the left side
-  // Position on negative X axis, slightly above center
-  threeCamera.position.set(center.x - fitDist * 1.2, center.y + maxDim*0.1, center.z);
+  // Position on negative X axis, slightly above center, closer to model
+  threeCamera.position.set(center.x - fitDist * 0.7, center.y + maxDim*0.1, center.z);
   threeCamera.near = Math.max(0.01, fitDist/100);
   threeCamera.far = fitDist * 100;
   threeCamera.updateProjectionMatrix();
@@ -1433,13 +1593,15 @@ function initHandlebar() {
   
   // Scene setup
   handlebarScene = new THREE.Scene();
-  handlebarScene.background = new THREE.Color(0xf0f0f0);
+  // Set background based on current theme
+  const isDark = document.body.classList.contains('dark-theme-variables');
+  handlebarScene.background = new THREE.Color(isDark ? 0x1a1a1a : 0xf0f0f0);
   
   // Camera
   const w = Math.max(1, container.clientWidth);
   const h = Math.max(1, container.clientHeight);
   handlebarCamera = new THREE.PerspectiveCamera(50, w / h, 0.01, 1000);
-  handlebarCamera.position.set(0, 0.5, 2);
+  handlebarCamera.position.set(0, 0.5, 1.2);
   handlebarCamera.lookAt(0, 0, 0);
   
   // Renderer
@@ -1478,7 +1640,7 @@ function initHandlebar() {
     const deltaX = e.clientX - handlebarLastMouse.x;
     const deltaY = e.clientY - handlebarLastMouse.y;
     
-    handlebarRotation.y += deltaX * 0.01;
+    // Only allow X-axis rotation (pitch) based on vertical mouse movement
     handlebarRotation.x += deltaY * 0.01;
     
     handlebarLastMouse.x = e.clientX;
@@ -1600,9 +1762,9 @@ function frameHandlebar(object3D) {
   const fitDist = (maxDim / 2) / Math.tan(fov / 2);
   
   // Set initial zoom and rotation based on model size
-  handlebarZoom = fitDist * 3.0;
-  handlebarRotation.x = 0.2; // Slight tilt down
-  handlebarRotation.y = 0; // Front view
+  handlebarZoom = fitDist * 0.4;
+  handlebarRotation.x = 0.5; // Slight tilt down
+  handlebarRotation.y = 3.1415; // Front view
   
   handlebarCamera.near = Math.max(0.01, fitDist / 100);
   handlebarCamera.far = fitDist * 100;
@@ -1805,6 +1967,20 @@ const I18N = {
     size_s: 'Small',
     size_m: 'Medium',
     size_l: 'Large',
+    // Profile modal
+    profile_settings: 'Profile / Settings',
+    profile_title: 'Profile & Sorting',
+    active_profile: 'Active profile',
+    set_active: 'Set Active',
+    new_runner_placeholder: 'New runner name',
+    create_runner: 'Create',
+    unsorted_runs: 'Unsorted runs',
+    profile_runs: 'Profile runs',
+    move_to_profile: '→ Move to profile',
+    rename_placeholder: 'New name',
+    rename_run: 'Rename',
+    delete_run: 'Delete',
+    download_all: 'Download All CSV',
   },
   fr: {
     websocket_label: 'WebSocket :',
@@ -1869,6 +2045,20 @@ const I18N = {
     size_s: 'Petit',
     size_m: 'Moyen',
     size_l: 'Grand',
+    // Profile modal
+    profile_settings: 'Profil / Paramètres',
+    profile_title: 'Profil & Tri',
+    active_profile: 'Profil actif',
+    set_active: 'Définir actif',
+    new_runner_placeholder: 'Nom du nouveau coureur',
+    create_runner: 'Créer',
+    unsorted_runs: 'Runs non triés',
+    profile_runs: 'Runs du profil',
+    move_to_profile: '→ Déplacer vers le profil',
+    rename_placeholder: 'Nouveau nom',
+    rename_run: 'Renommer',
+    delete_run: 'Supprimer',
+    download_all: 'Télécharger tous les CSV',
   },
   de: {
     websocket_label: 'WebSocket:',
@@ -1933,6 +2123,20 @@ const I18N = {
     size_s: 'Klein',
     size_m: 'Mittel',
     size_l: 'Groß',
+    // Profile modal
+    profile_settings: 'Profil / Einstellungen',
+    profile_title: 'Profil & Sortierung',
+    active_profile: 'Aktives Profil',
+    set_active: 'Aktivieren',
+    new_runner_placeholder: 'Neuer Fahrername',
+    create_runner: 'Erstellen',
+    unsorted_runs: 'Unsortierte Läufe',
+    profile_runs: 'Profil-Läufe',
+    move_to_profile: '→ Zum Profil verschieben',
+    rename_placeholder: 'Neuer Name',
+    rename_run: 'Umbenennen',
+    delete_run: 'Löschen',
+    download_all: 'Alle CSV herunterladen',
   }
 };
 
@@ -1959,6 +2163,14 @@ function applyTranslations(lang) {
       } else {
         el.textContent = dict[key];
       }
+    }
+  });
+  
+  // Handle placeholder translations
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    const key = el.getAttribute('data-i18n-placeholder');
+    if (dict[key]) {
+      el.placeholder = dict[key];
     }
   });
   

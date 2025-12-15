@@ -23,7 +23,7 @@
     <header class="topbar">
       <div class="brand">
         <img src="images/logo.png" alt="logo" />
-        <span>Smart Bike - Live</span>
+        <span>Smart Bike</span>
       </div>
       
       <!-- Chart control buttons moved to header -->
@@ -50,6 +50,7 @@
           <button class="lang-btn" data-lang="fr">FR</button>
           <button class="lang-btn" data-lang="de">DE</button>
         </div>
+        <button id="btn_profile" class="btn" style="margin-left:8px" data-i18n="profile_settings">Profile / Settings</button>
       </div>
     </header>
 
@@ -80,15 +81,15 @@
           <div id="three_container" class="three-container"></div>
         </div>
 
-        <div class="chart-card quad" id="chart_pressure_right_card">
-          <h2 data-i18n="right_handle">Right Handle (Sensors 1-4)</h2>
-          <div id="pressure_chart_right" class="chart"></div>
-        </div>
-
         <div class="chart-card quad" id="chart_pressure_left_card">
           <h2 data-i18n="left_handle">Left Handle (Sensors 5-8)</h2>
           <div id="pressure_chart_left" class="chart"></div>
         </div>
+
+        <div class="chart-card quad" id="chart_pressure_right_card">
+          <h2 data-i18n="right_handle">Right Handle (Sensors 1-4)</h2>
+          <div id="pressure_chart_right" class="chart"></div>
+        </div>        
 
         <div class="chart-card quad" id="corr_card" style="display: none;">
           <h2 data-i18n="correlation_matrix">Correlation Matrix</h2>
@@ -170,6 +171,43 @@
         </div>
 
       </main>
+    </div>
+
+    <!-- Profile / Settings Modal -->
+    <div id="profile_modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="profile_title">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="profile_title" data-i18n="profile_title">Profile & Sorting</h3>
+          <button id="profile_close" class="modal-close" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="controls-row">
+            <label for="profile_select" data-i18n="active_profile">Active profile</label>
+            <select id="profile_select" class="select" style="min-width:180px"></select>
+            <button id="btn_set_active" class="btn" data-i18n="set_active">Set Active</button>
+            <input id="new_runner_name" class="select" data-i18n-placeholder="new_runner_placeholder" placeholder="New runner name" style="width:180px;margin-left:12px" />
+            <button id="btn_create_runner" class="btn" data-i18n="create_runner">Create</button>
+          </div>
+          <div class="controls-row">
+            <div style="flex:1">
+              <h4 data-i18n="unsorted_runs">Unsorted runs</h4>
+              <select id="unsorted_list" size="8" multiple class="select" style="width:100%"></select>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;padding:0 12px;gap:8px">
+              <button id="btn_move_selected" class="btn" data-i18n="move_to_profile">→ Move to profile</button>
+            </div>
+            <div style="flex:1">
+              <h4 data-i18n="profile_runs">Profile runs</h4>
+              <select id="profile_runs_list" size="8" multiple class="select" style="width:100%"></select>
+              <div style="margin-top:8px;display:flex;gap:8px">
+                <input id="rename_run_input" class="select" data-i18n-placeholder="rename_placeholder" placeholder="New name" style="flex:1" />
+                <button id="btn_rename_profile_run" class="btn" data-i18n="rename_run">Rename</button>
+                <button id="btn_delete_profile_run" class="btn" data-i18n="delete_run" style="background:#dc3545">Delete</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 </body>
 </html>

@@ -11,6 +11,8 @@
 #include "esp_spiffs.h"
 #include "esp_http_server.h"
 #include "nvs_flash.h"
+#include "nvs.h"
+#include <ctype.h>
 #include "esp_mac.h"
 #include "shared.h"  // Access to sensor data
 #include "mdns.h"
@@ -18,6 +20,39 @@
 static const char* TAG = "SmartBike";
 static const char* AP_SSID = "SmartBike"; // open AP (no password)
 static httpd_handle_t server = NULL;
+
+// Active runner profile (persisted in NVS)
+static char g_active_runner[64] = "";
+
+static bool is_safe_name(const char* s) {
+  // Allow letters, digits, underscore, hyphen, dot
+  if (!s || !*s) return false;
+  for (const char* p = s; *p; ++p) {
+    if (!(isalnum((unsigned char)*p) || *p=='_' || *p=='-' || *p=='.')) return false;
+  }
+  return true;
+}
+
+static void nvs_load_active_runner(void) {
+  nvs_handle_t h;
+  if (nvs_open("storage", NVS_READONLY, &h) == ESP_OK) {
+    size_t len = sizeof(g_active_runner);
+    esp_err_t err = nvs_get_str(h, "active_runner", g_active_runner, &len);
+    if (err != ESP_OK) {
+      g_active_runner[0] = '\0';
+    }
+    nvs_close(h);
+  }
+}
+
+static void nvs_save_active_runner(const char* name) {
+  nvs_handle_t h;
+  if (nvs_open("storage", NVS_READWRITE, &h) == ESP_OK) {
+    nvs_set_str(h, "active_runner", name ? name : "");
+    nvs_commit(h);
+    nvs_close(h);
+  }
+}
 
 static const char* contentType(const char* path) {
   const char* ext = strrchr(path, '.');
@@ -351,6 +386,231 @@ static esp_err_t api_runs_handler(httpd_req_t *req) {
   return ESP_OK;
 }
 
+// API: GET /api/runners -> list runner directories on SD root, also returns active
+static esp_err_t api_runners_handler(httpd_req_t *req) {
+  DIR* dir = opendir("/sdcard");
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  if (!dir) {
+    httpd_resp_send(req, "{\"runners\":[],\"active\":\"\"}", HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+  }
+
+  // Build JSON array of directory names
+  char* json = (char*)malloc(2048);
+  if (!json) { closedir(dir); httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "malloc failed"); return ESP_FAIL; }
+  strcpy(json, "{\"runners\":[");
+  bool first = true;
+  struct dirent* e;
+  while ((e = readdir(dir)) != NULL) {
+    if (e->d_type == DT_DIR) {
+      if (strcmp(e->d_name, ".")==0 || strcmp(e->d_name, "..")==0) continue;
+      // include all dirs
+      if (!first) strcat(json, ",");
+      strcat(json, "\"");
+      strcat(json, e->d_name);
+      strcat(json, "\"");
+      first = false;
+    }
+  }
+  closedir(dir);
+  strcat(json, "],\"active\":\"");
+  strcat(json, g_active_runner);
+  strcat(json, "\"}");
+  httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+  free(json);
+  return ESP_OK;
+}
+
+// API: GET /api/runs-in?runner=<folder> -> list RUN*.CSV inside folder
+static esp_err_t api_runs_in_handler(httpd_req_t *req) {
+  char query[256];
+  char runner[128] = {0};
+  if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+    httpd_query_key_value(query, "runner", runner, sizeof(runner));
+  }
+  if (!*runner) {
+    // default to root of SD
+    strcpy(runner, ".");
+  }
+  if (!is_safe_name(runner) && strcmp(runner, ".")!=0) {
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad runner");
+    return ESP_FAIL;
+  }
+  char base[256];
+  if (strcmp(runner, ".") == 0) snprintf(base, sizeof(base), "/sdcard");
+  else snprintf(base, sizeof(base), "/sdcard/%s", runner);
+  DIR* dir = opendir(base);
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  if (!dir) { httpd_resp_send(req, "[]", 2); return ESP_OK; }
+  char* json = (char*)malloc(2048);
+  if (!json) { closedir(dir); httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "malloc failed"); return ESP_FAIL; }
+  strcpy(json, "["); bool first = true; struct dirent* e;
+  while ((e = readdir(dir)) != NULL) {
+    if (e->d_type == DT_REG) {
+      if (strstr(e->d_name, "RUN") == e->d_name && strstr(e->d_name, ".CSV")) {
+        if (!first) strcat(json, ",");
+        strcat(json, "\""); strcat(json, e->d_name); strcat(json, "\"");
+        first = false;
+      }
+    }
+  }
+  closedir(dir);
+  strcat(json, "]");
+  httpd_resp_send(req, json, strlen(json));
+  free(json);
+  return ESP_OK;
+}
+
+// API: POST /api/move-run with form body src=<from>&dst=<to>
+static esp_err_t api_move_run_handler(httpd_req_t *req) {
+  char buf[256]; int total = 0; int to_read = req->content_len;
+  while (to_read > 0 && total < (int)sizeof(buf)-1) {
+    int r = httpd_req_recv(req, buf + total, to_read > (int)sizeof(buf)-1-total ? (int)sizeof(buf)-1-total : to_read);
+    if (r <= 0) break; total += r; to_read -= r;
+  }
+  buf[total] = '\0';
+  // Expect urlencoded: src=unsorted_run%2FRUN1.CSV&dst=Alice%2FRUN1.CSV
+  char* srcp = strstr(buf, "src=");
+  char* dstp = strstr(buf, "dst=");
+  if (!srcp || !dstp) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "missing params"); return ESP_FAIL; }
+  // crude parse
+  char src[160] = {0}, dst[160] = {0};
+  sscanf(srcp, "src=%159[^&]", src);
+  sscanf(dstp, "dst=%159[^&]", dst);
+  // decode %2F only (we only need slash), replace %2F with '/'
+  for (char* p = src; *p; ++p) if (*p=='%') { if (p[1]=='2'&&(p[2]=='F'||p[2]=='f')) { *p='/'; memmove(p+1, p+3, strlen(p+3)+1);} }
+  for (char* p = dst; *p; ++p) if (*p=='%') { if (p[1]=='2'&&(p[2]=='F'||p[2]=='f')) { *p='/'; memmove(p+1, p+3, strlen(p+3)+1);} }
+  // Validate components: expect form "folder/file"
+  char srcFolder[100]={0}, srcFile[100]={0};
+  char dstFolder[100]={0}, dstFile[100]={0};
+  sscanf(src, "%99[^/]/%99s", srcFolder, srcFile);
+  sscanf(dst, "%99[^/]/%99s", dstFolder, dstFile);
+  if (!is_safe_name(srcFolder) || !is_safe_name(srcFile) || !is_safe_name(dstFolder) || !is_safe_name(dstFile)) {
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad names");
+    return ESP_FAIL;
+  }
+  char fromPath[256]; snprintf(fromPath, sizeof(fromPath), "/sdcard/%s/%s", srcFolder, srcFile);
+  char toDir[256]; snprintf(toDir, sizeof(toDir), "/sdcard/%s", dstFolder);
+  char toPath[256]; snprintf(toPath, sizeof(toPath), "/sdcard/%s/%s", dstFolder, dstFile);
+  // ensure dest dir exists
+  struct stat st; if (stat(toDir, &st) != 0) { mkdir(toDir, 0775); }
+  // move
+  if (rename(fromPath, toPath) != 0) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "rename failed");
+    return ESP_FAIL;
+  }
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
+  return ESP_OK;
+}
+
+// API: POST /api/create-runner with form body name=<runner>
+static esp_err_t api_create_runner_handler(httpd_req_t *req) {
+  char buf[96]; int total=0; int to_read=req->content_len;
+  while (to_read>0 && total<(int)sizeof(buf)-1) {
+    int r=httpd_req_recv(req, buf+total, to_read > (int)sizeof(buf)-1-total ? (int)sizeof(buf)-1-total : to_read);
+    if (r<=0) break; total+=r; to_read-=r;
+  }
+  buf[total]='\0';
+  char* np = strstr(buf, "name=");
+  if (!np) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "missing name"); return ESP_FAIL; }
+  char name[64]={0}; sscanf(np, "name=%63[^&]", name);
+  if (!is_safe_name(name)) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad name"); return ESP_FAIL; }
+  char dir[160]; snprintf(dir, sizeof(dir), "/sdcard/%s", name);
+  struct stat st; if (stat(dir, &st)==0 && S_ISDIR(st.st_mode)) {
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, "{\"ok\":true,\"exists\":true}", HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+  }
+  if (mkdir(dir, 0775) != 0) { httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "mkdir failed"); return ESP_FAIL; }
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
+  return ESP_OK;
+}
+
+// API: POST /api/rename-run with form body folder=<folder>&old=<oldname>&new=<newname>
+static esp_err_t api_rename_run_handler(httpd_req_t *req) {
+  char buf[256]; int total=0; int to_read=req->content_len;
+  while (to_read>0 && total<(int)sizeof(buf)-1) {
+    int r=httpd_req_recv(req, buf+total, to_read > (int)sizeof(buf)-1-total ? (int)sizeof(buf)-1-total : to_read);
+    if (r<=0) break; total+=r; to_read-=r;
+  }
+  buf[total]='\0';
+  char folder[100]={0}, oldname[100]={0}, newname[100]={0};
+  char* fp=strstr(buf,"folder="); char* op=strstr(buf,"old="); char* np=strstr(buf,"new=");
+  if (!fp||!op||!np) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "missing params"); return ESP_FAIL; }
+  sscanf(fp, "folder=%99[^&]", folder); sscanf(op, "old=%99[^&]", oldname); sscanf(np, "new=%99[^&]", newname);
+  // decode %2F
+  for (char* p=folder; *p; ++p) if (*p=='%'&&p[1]=='2'&&(p[2]=='F'||p[2]=='f')) { *p='/'; memmove(p+1,p+3,strlen(p+3)+1);}
+  for (char* p=oldname; *p; ++p) if (*p=='%'&&p[1]=='2'&&(p[2]=='F'||p[2]=='f')) { *p='/'; memmove(p+1,p+3,strlen(p+3)+1);}
+  for (char* p=newname; *p; ++p) if (*p=='%'&&p[1]=='2'&&(p[2]=='F'||p[2]=='f')) { *p='/'; memmove(p+1,p+3,strlen(p+3)+1);}
+  if (!is_safe_name(folder)||!is_safe_name(oldname)||!is_safe_name(newname)) {
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad names"); return ESP_FAIL;
+  }
+  char oldPath[256]; snprintf(oldPath, sizeof(oldPath), "/sdcard/%s/%s", folder, oldname);
+  char newPath[256]; snprintf(newPath, sizeof(newPath), "/sdcard/%s/%s", folder, newname);
+  if (rename(oldPath, newPath)!=0) { httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "rename failed"); return ESP_FAIL; }
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
+  return ESP_OK;
+}
+
+// API: POST /api/delete-run with form body folder=<folder>&file=<filename>
+static esp_err_t api_delete_run_handler(httpd_req_t *req) {
+  char buf[200]; int total=0; int to_read=req->content_len;
+  while (to_read>0 && total<(int)sizeof(buf)-1) {
+    int r=httpd_req_recv(req, buf+total, to_read > (int)sizeof(buf)-1-total ? (int)sizeof(buf)-1-total : to_read);
+    if (r<=0) break; total+=r; to_read-=r;
+  }
+  buf[total]='\0';
+  char folder[100]={0}, file[100]={0};
+  char* fp=strstr(buf,"folder="); char* ffp=strstr(buf,"file=");
+  if (!fp||!ffp) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "missing params"); return ESP_FAIL; }
+  sscanf(fp, "folder=%99[^&]", folder); sscanf(ffp, "file=%99[^&]", file);
+  for (char* p=folder; *p; ++p) if (*p=='%'&&p[1]=='2'&&(p[2]=='F'||p[2]=='f')) { *p='/'; memmove(p+1,p+3,strlen(p+3)+1);}
+  for (char* p=file; *p; ++p) if (*p=='%'&&p[1]=='2'&&(p[2]=='F'||p[2]=='f')) { *p='/'; memmove(p+1,p+3,strlen(p+3)+1);}
+  if (!is_safe_name(folder)||!is_safe_name(file)) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad names"); return ESP_FAIL; }
+  char path[256]; snprintf(path, sizeof(path), "/sdcard/%s/%s", folder, file);
+  if (unlink(path)!=0) { httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "delete failed"); return ESP_FAIL; }
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
+  return ESP_OK;
+}
+
+// API: GET/POST /api/active-runner
+static esp_err_t api_active_runner_get(httpd_req_t *req) {
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  char out[96]; snprintf(out, sizeof(out), "{\"active\":\"%s\"}", g_active_runner);
+  httpd_resp_send(req, out, HTTPD_RESP_USE_STRLEN);
+  return ESP_OK;
+}
+static esp_err_t api_active_runner_post(httpd_req_t *req) {
+  char buf[128]; int total=0; int to_read=req->content_len;
+  while (to_read>0 && total< (int)sizeof(buf)-1) {
+    int r=httpd_req_recv(req, buf+total, to_read > (int)sizeof(buf)-1-total ? (int)sizeof(buf)-1-total : to_read);
+    if (r<=0) break; total+=r; to_read-=r;
+  }
+  buf[total]='\0';
+  // expect body runner=<name>
+  char* rp = strstr(buf, "runner=");
+  if (!rp) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "missing runner"); return ESP_FAIL; }
+  char name[64]={0}; sscanf(rp, "runner=%63[^&]", name);
+  // decode + to space? we don't allow spaces. Keep simple.
+  if (!is_safe_name(name)) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad name"); return ESP_FAIL; }
+  strncpy(g_active_runner, name, sizeof(g_active_runner)-1);
+  nvs_save_active_runner(g_active_runner);
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
+  return ESP_OK;
+}
+
 // API endpoint: /api/runs/<filename> - Download a specific RUN file from SD
 static esp_err_t api_run_file_handler(httpd_req_t *req) {
   // Extract filename from URI (e.g., /api/runs/RUN1.CSV)
@@ -514,6 +774,73 @@ static httpd_handle_t start_webserver(void) {
       .user_ctx  = NULL
     };
     httpd_register_uri_handler(server, &api_run_file_uri);
+
+    // Runners list
+    httpd_uri_t api_runners_uri = {
+      .uri       = "/api/runners",
+      .method    = HTTP_GET,
+      .handler   = api_runners_handler,
+      .user_ctx  = NULL
+    };
+    httpd_register_uri_handler(server, &api_runners_uri);
+
+    // Runs in folder
+    httpd_uri_t api_runs_in_uri = {
+      .uri       = "/api/runs-in",
+      .method    = HTTP_GET,
+      .handler   = api_runs_in_handler,
+      .user_ctx  = NULL
+    };
+    httpd_register_uri_handler(server, &api_runs_in_uri);
+
+    // Move run
+    httpd_uri_t api_move_run_uri = {
+      .uri       = "/api/move-run",
+      .method    = HTTP_POST,
+      .handler   = api_move_run_handler,
+      .user_ctx  = NULL
+    };
+    httpd_register_uri_handler(server, &api_move_run_uri);
+
+    httpd_uri_t api_create_runner_uri = {
+      .uri       = "/api/create-runner",
+      .method    = HTTP_POST,
+      .handler   = api_create_runner_handler,
+      .user_ctx  = NULL
+    };
+    httpd_register_uri_handler(server, &api_create_runner_uri);
+
+    httpd_uri_t api_rename_run_uri = {
+      .uri       = "/api/rename-run",
+      .method    = HTTP_POST,
+      .handler   = api_rename_run_handler,
+      .user_ctx  = NULL
+    };
+    httpd_register_uri_handler(server, &api_rename_run_uri);
+
+    httpd_uri_t api_delete_run_uri = {
+      .uri       = "/api/delete-run",
+      .method    = HTTP_POST,
+      .handler   = api_delete_run_handler,
+      .user_ctx  = NULL
+    };
+    httpd_register_uri_handler(server, &api_delete_run_uri);
+
+    // Active runner GET/POST
+    httpd_uri_t api_active_runner_get_uri = {
+      .uri       = "/api/active-runner",
+      .method    = HTTP_GET,
+      .handler   = api_active_runner_get,
+      .user_ctx  = NULL
+    };
+    httpd_register_uri_handler(server, &api_active_runner_get_uri);
+    httpd_uri_t api_active_runner_post_uri = {
+      .uri       = "/api/active-runner",
+      .method    = HTTP_POST,
+      .handler   = api_active_runner_post,
+      .user_ctx  = NULL
+    };
+    httpd_register_uri_handler(server, &api_active_runner_post_uri);
     
     // Root handler
     httpd_uri_t root_uri = {
@@ -603,6 +930,9 @@ void web_init(void) {
     ret = nvs_flash_init();
   }
   ESP_ERROR_CHECK(ret);
+
+  // Load persisted active runner
+  nvs_load_active_runner();
 
   // Initialize SPIFFS
   init_spiffs();
