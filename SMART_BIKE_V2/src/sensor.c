@@ -18,6 +18,7 @@
 #include "esp_timer.h"
 #include "esp_task_wdt.h"        // To disable Task Watchdog
 #include "shared.h"               // Shared data structures
+#include "icm20948.h"             // ICM-20948 gyroscope/accelerometer
 
 static const char *TAG = "SMART_BIKE_RUN";
 
@@ -350,8 +351,8 @@ static void start_run(void)
             return;
         }
 
-        // Header CSV
-        fprintf(g_run_file, "run,time_run_ms,capteur,value_V\n");
+        // Header CSV with ICM-20948 data (accel + gyro)
+        fprintf(g_run_file, "run,time_run_ms,capteur,value_V,accel_x_ms2,accel_y_ms2,accel_z_ms2,gyro_x_dps,gyro_y_dps,gyro_z_dps\n");
         fflush(g_run_file);
         g_samples_since_flush = 0;
         ESP_LOGI(TAG, "RUN %d started (SD recording)", g_run_id);
@@ -487,6 +488,24 @@ static void sample_and_log(int64_t now_us)
     if (elapsed_ms < 0) elapsed_ms = 0;
     uint32_t t_ms = (uint32_t)elapsed_ms;
 
+    // Read ICM-20948 (gyroscope + accelerometer)
+    float accel_x = 0.0f, accel_y = 0.0f, accel_z = 0.0f;
+    float gyro_x = 0.0f, gyro_y = 0.0f, gyro_z = 0.0f;
+    
+    esp_err_t imu_err = icm20948_read_data(&accel_x, &accel_y, &accel_z,
+                                           &gyro_x, &gyro_y, &gyro_z);
+    if (imu_err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to read ICM-20948: %s", esp_err_to_name(imu_err));
+    }
+
+    // Store IMU data in global shared structure
+    g_latest_sensor_data.accel_x = accel_x;
+    g_latest_sensor_data.accel_y = accel_y;
+    g_latest_sensor_data.accel_z = accel_z;
+    g_latest_sensor_data.gyro_x = gyro_x;
+    g_latest_sensor_data.gyro_y = gyro_y;
+    g_latest_sensor_data.gyro_z = gyro_z;
+
     // 4 MUX positions -> 8 sensors (1..4 right, 5..8 left)
     for (uint8_t ch = 0; ch < 4; ++ch) {
         mux_select(ch);
@@ -513,29 +532,34 @@ static void sample_and_log(int64_t now_us)
         // Write to SD only if file is open
         if (g_run_file) {
             // Right hand sensors (FSR_B)
-            fprintf(g_run_file, "%d,%lu,%u,%.4f\n",
+            fprintf(g_run_file, "%d,%lu,%u,%.4f,%.3f,%.3f,%.3f,%.2f,%.2f,%.2f\n",
                     g_run_id,
                     (unsigned long)t_ms,
                     (unsigned int)capteurB,
-                    vB);
+                    vB,
+                    accel_x, accel_y, accel_z,
+                    gyro_x, gyro_y, gyro_z);
 
             // Capteurs main gauche (FSR_A)
-            fprintf(g_run_file, "%d,%lu,%u,%.4f\n",
+            fprintf(g_run_file, "%d,%lu,%u,%.4f,%.3f,%.3f,%.3f,%.2f,%.2f,%.2f\n",
                     g_run_id,
                     (unsigned long)t_ms,
                     (unsigned int)capteurA,
-                    vA);
+                    vA,
+                    accel_x, accel_y, accel_z,
+                    gyro_x, gyro_y, gyro_z);
         }
 
         // Serial display always active (with or without SD)
         ESP_LOGI(TAG,
-                 "RUN=%d t=%lums MUX=%u -> C%u=%.3fV (right), C%u=%.3fV (left, err=%s)",
+                 "RUN=%d t=%lums MUX=%u -> C%u=%.3fV, C%u=%.3fV | Accel(m/s²): X=%.2f Y=%.2f Z=%.2f | Gyro(dps): X=%.1f Y=%.1f Z=%.1f",
                  g_run_id,
                  (unsigned long)t_ms,
                  ch,
                  capteurB, vB,
                  capteurA, vA,
-                 esp_err_to_name(errA));
+                 accel_x, accel_y, accel_z,
+                 gyro_x, gyro_y, gyro_z);
     }
 
     // Update timestamp and mark data as valid
@@ -586,6 +610,11 @@ void sensor_init(void)
 
     gpio_init_all();
     adc_init_all();
+
+    // Initialize ICM-20948 (gyroscope + accelerometer)
+    if (icm20948_init() != ESP_OK) {
+        ESP_LOGW(TAG, "ICM-20948 initialization failed, continuing without IMU");
+    }
 
     // Try SD at boot (if card absent, we'll retry on first RUN)
     if (sdcard_init() != ESP_OK) {
