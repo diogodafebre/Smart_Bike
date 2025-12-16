@@ -6,11 +6,19 @@
 #include "driver/gpio.h"
 #include "driver/i2c.h"
 #include "driver/spi_master.h"
+#include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sdmmc_cmd.h"
+
+// Définition des Pins et Canaux pour ESP32-C3
+// GPIO 0 correspond au Canal 0 de l'ADC 1
+#define ADC1_CHAN0 ADC_CHANNEL_0
+// GPIO 5 correspond au Canal 0 de l'ADC 2
+#define ADC2_CHAN0 ADC_CHANNEL_0
+
 // Define GPIO inputs analog
 #define FSR_B 0  // ADC1 - CH0
 #define FSR_A 5  // ADC2 - CH0
@@ -75,71 +83,114 @@ void app_main(void) {
 
     // // Test i2c - Va tester tous les adresses i2c de 1 à 127 et afficher les adresses qui répondent
     // ESP_LOGI(TAG, "Testing I2C device...");
-    // uint8_t addr = 0x00;
+    uint8_t addr = 0x00;
 
-    // while (1) {
-    //     i2c_config_t conf = {
-    //         .mode = I2C_MODE_MASTER,
-    //         .sda_io_num = I2C_MASTER_SDA_IO,
-    //         .scl_io_num = I2C_MASTER_SCL_IO,
-    //         .sda_pullup_en = GPIO_PULLUP_ENABLE,  // Active les résistances internes
-    //         .scl_pullup_en = GPIO_PULLUP_ENABLE,
-    //         .master.clk_speed = I2C_MASTER_FREQ_HZ,
-    //     };
+    while (1) {
+        i2c_config_t conf = {
+            .mode = I2C_MODE_MASTER,
+            .sda_io_num = I2C_MASTER_SDA_IO,
+            .scl_io_num = I2C_MASTER_SCL_IO,
+            .sda_pullup_en = GPIO_PULLUP_ENABLE,  // Active les résistances internes
+            .scl_pullup_en = GPIO_PULLUP_ENABLE,
+            .master.clk_speed = I2C_MASTER_FREQ_HZ,
+        };
 
-    //     esp_err_t err = i2c_param_config(I2C_MASTER_NUM, &conf);
-    //     if (err != ESP_OK) {
-    //         ESP_LOGE(TAG, "Erreur config I2C");
-    //         return;
-    //     }
+        esp_err_t err = i2c_param_config(I2C_MASTER_NUM, &conf);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Erreur config I2C");
+            return;
+        }
 
-    //     err = i2c_driver_install(I2C_MASTER_NUM, conf.mode, 0, 0, 0);
-    //     if (err != ESP_OK) {
-    //         ESP_LOGE(TAG, "Erreur installation driver I2C");
-    //         return;
-    //     }
+        err = i2c_driver_install(I2C_MASTER_NUM, conf.mode, 0, 0, 0);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Erreur installation driver I2C");
+            return;
+        }
 
-    //     ESP_LOGI(TAG, "Scanner prêt. Début du scan en boucle...");
+        ESP_LOGI(TAG, "Scanner prêt. Début du scan en boucle...");
 
-    //     while (1) {
-    //         ESP_LOGI(TAG, "--- Scan en cours ---");
-    //         int devices_found = 0;
+        while (1) {
+            ESP_LOGI(TAG, "--- Scan en cours ---");
+            int devices_found = 0;
 
-    //         // On teste toutes les adresses possibles (1 à 127)
-    //         for (int i = 1; i < 127; i++) {
-    //             // i = 0x68;
-    //             i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    //             i2c_master_start(cmd);
-    //             // On envoie l'adresse + bit d'écriture (0) pour voir si on reçoit un ACK
-    //             i2c_master_write_byte(cmd, (i << 1) | I2C_MASTER_WRITE, true);
-    //             i2c_master_stop(cmd);
+            // On teste toutes les adresses possibles (1 à 127)
+            for (int i = 1; i < 127; i++) {
+                // i = 0x68;
+                i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+                i2c_master_start(cmd);
+                // On envoie l'adresse + bit d'écriture (0) pour voir si on reçoit un ACK
+                i2c_master_write_byte(cmd, (i << 1) | I2C_MASTER_WRITE, true);
+                i2c_master_stop(cmd);
 
-    //             esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(TIMEOUT_MS));
-    //             i2c_cmd_link_delete(cmd);
+                esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(TIMEOUT_MS));
+                i2c_cmd_link_delete(cmd);
 
-    //             if (ret == ESP_OK) {
-    //                 ESP_LOGI(TAG, "Périphérique trouvé à l'adresse: 0x%02X", i);
-    //                 devices_found++;
-    //             }
-    //         }
+                if (ret == ESP_OK) {
+                    ESP_LOGI(TAG, "Périphérique trouvé à l'adresse: 0x%02X", i);
+                    devices_found++;
+                }
+            }
 
-    //         if (devices_found == 0) {
-    //             ESP_LOGW(TAG, "Aucun périphérique I2C trouvé !");
-    //         } else {
-    //             ESP_LOGI(TAG, "Fin du scan. %d périphérique(s) trouvé(s).", devices_found);
-    //         }
-    //         ESP_LOGI(TAG, "RETRY");
-    //         vTaskDelay(pdMS_TO_TICKS(2000));  // Pause de 2 secondes avant de recommencer
-    //     }
-    // }
+            if (devices_found == 0) {
+                ESP_LOGW(TAG, "Aucun périphérique I2C trouvé !");
+            } else {
+                ESP_LOGI(TAG, "Fin du scan. %d périphérique(s) trouvé(s).", devices_found);
+            }
+            ESP_LOGI(TAG, "RETRY");
+            vTaskDelay(pdMS_TO_TICKS(2000));  // Pause de 2 secondes avant de recommencer
+        }
+    }
 
     // Test analog inputs
-    while (0) {
-        int val_fsr_a = adc1_get_raw(0);
-        int val_fsr_b = adc2_get_raw(0, ADC_WIDTH_BIT_12);
-        ESP_LOGI(TAG, "FSR A: %d | FSR B: %d", val_fsr_a, val_fsr_b);
-        vTaskDelay(pdMS_TO_TICKS(500));
+    adc_oneshot_unit_handle_t adc1_handle;
+    adc_oneshot_unit_init_cfg_t init_config1 = {
+        .unit_id = ADC_UNIT_1,
+        .ulp_mode = ADC_ULP_MODE_DISABLE,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
+
+    // --- 2. Initialisation de l'Unité ADC 2 (Pour GPIO 5) ---
+    adc_oneshot_unit_handle_t adc2_handle;
+    adc_oneshot_unit_init_cfg_t init_config2 = {
+        .unit_id = ADC_UNIT_2,
+        .ulp_mode = ADC_ULP_MODE_DISABLE,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config2, &adc2_handle));
+
+    // --- 3. Configuration des Canaux (Atténuation) ---
+    // ATTEN_DB_12 permet de lire jusqu'à env. 3.0V - 3.3V (Full Range)
+    // Si on laisse par défaut, ça sature à 1.1V
+    adc_oneshot_chan_cfg_t config = {
+        .bitwidth = ADC_BITWIDTH_DEFAULT,  // Résolution 12 bits (0-4095)
+        .atten = ADC_ATTEN_DB_11,
+    };
+
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC1_CHAN0, &config));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc2_handle, ADC2_CHAN0, &config));
+
+    ESP_LOGI(TAG, "ADC Initialisés. Lecture en boucle...");
+
+    // Variables pour stocker les résultats
+    int adc_raw_b = 0;  // FSR_B (GPIO 0)
+    int adc_raw_a = 0;  // FSR_A (GPIO 5)
+
+    while (1) {
+        // Lecture ADC1 (GPIO 0)
+        ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC1_CHAN0, &adc_raw_b));
+
+        // Lecture ADC2 (GPIO 5)
+        ESP_ERROR_CHECK(adc_oneshot_read(adc2_handle, ADC2_CHAN0, &adc_raw_a));
+
+        // Affichage dans le terminal
+        // 0 = 0V, ~4095 = 3.3V
+        ESP_LOGI(TAG, "FSR_B (GPIO 0): %d  |  FSR_A (GPIO 5): %d", adc_raw_b, adc_raw_a);
+
+        vTaskDelay(pdMS_TO_TICKS(500));  // Pause de 500ms
     }
+
+    // (Optionnel) Nettoyage si on sortait de la boucle
+    adc_oneshot_del_unit(adc1_handle);
+    adc_oneshot_del_unit(adc2_handle);
 
     vTaskDelay(pdMS_TO_TICKS(1000));
     ESP_LOGI(TAG, "...");
