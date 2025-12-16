@@ -3,6 +3,8 @@
 #include <sys/param.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <unistd.h>
+#include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_wifi.h"
@@ -468,7 +470,11 @@ static esp_err_t api_move_run_handler(httpd_req_t *req) {
   char buf[256]; int total = 0; int to_read = req->content_len;
   while (to_read > 0 && total < (int)sizeof(buf)-1) {
     int r = httpd_req_recv(req, buf + total, to_read > (int)sizeof(buf)-1-total ? (int)sizeof(buf)-1-total : to_read);
-    if (r <= 0) break; total += r; to_read -= r;
+    if (r <= 0) {
+      break;
+    }
+    total += r;
+    to_read -= r;
   }
   buf[total] = '\0';
   // Expect urlencoded: src=unsorted_run%2FRUN1.CSV&dst=Alice%2FRUN1.CSV
@@ -512,7 +518,11 @@ static esp_err_t api_create_runner_handler(httpd_req_t *req) {
   char buf[96]; int total=0; int to_read=req->content_len;
   while (to_read>0 && total<(int)sizeof(buf)-1) {
     int r=httpd_req_recv(req, buf+total, to_read > (int)sizeof(buf)-1-total ? (int)sizeof(buf)-1-total : to_read);
-    if (r<=0) break; total+=r; to_read-=r;
+    if (r<=0) {
+      break;
+    }
+    total+=r;
+    to_read-=r;
   }
   buf[total]='\0';
   char* np = strstr(buf, "name=");
@@ -536,7 +546,11 @@ static esp_err_t api_rename_run_handler(httpd_req_t *req) {
   char buf[256]; int total=0; int to_read=req->content_len;
   while (to_read>0 && total<(int)sizeof(buf)-1) {
     int r=httpd_req_recv(req, buf+total, to_read > (int)sizeof(buf)-1-total ? (int)sizeof(buf)-1-total : to_read);
-    if (r<=0) break; total+=r; to_read-=r;
+    if (r<=0) {
+      break;
+    }
+    total+=r;
+    to_read-=r;
   }
   buf[total]='\0';
   char folder[100]={0}, oldname[100]={0}, newname[100]={0};
@@ -564,7 +578,11 @@ static esp_err_t api_delete_run_handler(httpd_req_t *req) {
   char buf[200]; int total=0; int to_read=req->content_len;
   while (to_read>0 && total<(int)sizeof(buf)-1) {
     int r=httpd_req_recv(req, buf+total, to_read > (int)sizeof(buf)-1-total ? (int)sizeof(buf)-1-total : to_read);
-    if (r<=0) break; total+=r; to_read-=r;
+    if (r<=0) {
+      break;
+    }
+    total+=r;
+    to_read-=r;
   }
   buf[total]='\0';
   char folder[100]={0}, file[100]={0};
@@ -594,7 +612,11 @@ static esp_err_t api_active_runner_post(httpd_req_t *req) {
   char buf[128]; int total=0; int to_read=req->content_len;
   while (to_read>0 && total< (int)sizeof(buf)-1) {
     int r=httpd_req_recv(req, buf+total, to_read > (int)sizeof(buf)-1-total ? (int)sizeof(buf)-1-total : to_read);
-    if (r<=0) break; total+=r; to_read-=r;
+    if (r<=0) {
+      break;
+    }
+    total+=r;
+    to_read-=r;
   }
   buf[total]='\0';
   // expect body runner=<name>

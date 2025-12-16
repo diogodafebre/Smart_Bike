@@ -1640,8 +1640,9 @@ function initHandlebar() {
     const deltaX = e.clientX - handlebarLastMouse.x;
     const deltaY = e.clientY - handlebarLastMouse.y;
     
-    // Only allow X-axis rotation (pitch) based on vertical mouse movement
-    handlebarRotation.x += deltaY * 0.01;
+    // Allow both yaw (horizontal drag) and pitch (vertical drag)
+    handlebarRotation.y += deltaX * 0.01; // yaw
+    handlebarRotation.x += deltaY * 0.01; // pitch
     
     handlebarLastMouse.x = e.clientX;
     handlebarLastMouse.y = e.clientY;
