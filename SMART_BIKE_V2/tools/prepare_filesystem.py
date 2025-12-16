@@ -28,6 +28,12 @@ def prepare_filesystem(*args, **kwargs):
         shutil.rmtree(data_dir)
     shutil.copytree(dashboard_dir, data_dir)
     print(f"  ✓ Dashboard copied to data/")
+
+    # Remove models directory from prepared data (keep it only in dashboard/)
+    models_dir = os.path.join(data_dir, "models")
+    if os.path.isdir(models_dir):
+        shutil.rmtree(models_dir)
+        print("  ✓ Removed data/models (not uploaded)")
     
     # Step 2: Compress .js files in data/libs/ and remove originals
     if os.path.isdir(libs_dir):
