@@ -88,11 +88,14 @@ const btnCreateRunner = document.getElementById('btn_create_runner');
 const unsortedList = document.getElementById('unsorted_list');
 const profileRunsList = document.getElementById('profile_runs_list');
 const btnMoveSelected = document.getElementById('btn_move_selected');
+const btnMoveToUnsorted = document.getElementById('btn_move_to_unsorted');
 const renameRunInput = document.getElementById('rename_run_input');
 const btnRenameProfileRun = document.getElementById('btn_rename_profile_run');
+const btnDownloadProfileRun = document.getElementById('btn_download_profile_run');
 const btnDeleteProfileRun = document.getElementById('btn_delete_profile_run');
+const btnDeleteUnsortedRun = document.getElementById('btn_delete_unsorted_run');
 
-const RESERVED_UNSORTED = 'unsorted_run';
+const RESERVED_UNSORTED = '.';  // Root SD card directory
 
 function showProfileModal() {
   if (!profileModal) return;
@@ -119,12 +122,27 @@ async function refreshProfilesUI() {
     const runners = Array.isArray(runnersInfo.runners) ? runnersInfo.runners : [];
     const active = runnersInfo.active || '';
     profileSelect.innerHTML = '';
-    // Show only real runners (exclude reserved like 'models')
+    // Show only real runners (exclude reserved folders like 'models', 'SYSTEM~1', etc.)
     for (const r of runners) {
-      if (r === 'models') continue;
+      const lowerName = r.toLowerCase();
+      // Skip system folders: models, SYSTEM~1, lost+found, etc.
+      if (lowerName === 'models' || r.includes('SYSTEM') || lowerName === 'lost+found') continue;
       const opt = document.createElement('option');
       opt.value = r; opt.textContent = r; if (r === active) opt.selected = true; profileSelect.appendChild(opt);
     }
+    
+    // Update active profile indicator
+    const indicator = document.getElementById('active_profile_indicator');
+    if (indicator) {
+      if (active) {
+        indicator.textContent = `✓ ${active}`;
+        indicator.style.display = 'inline';
+      } else {
+        indicator.textContent = '';
+        indicator.style.display = 'none';
+      }
+    }
+    
     // Populate lists
     await refreshRunsLists();
   } catch (e) {
@@ -160,51 +178,248 @@ profileSelect && profileSelect.addEventListener('change', refreshRunsLists);
 
 btnSetActive && btnSetActive.addEventListener('click', async () => {
   const prof = profileSelect.value;
-  if (!prof) return;
-  try { await apiPostForm('/api/active-runner', { runner: prof }); } catch (e) { console.error(e); }
+  if (!prof) {
+    alert('Please select a profile first');
+    return;
+  }
+  try {
+    await apiPostForm('/api/active-runner', { runner: prof });
+    console.log(`Active profile set to: ${prof}`);
+    alert(`Active profile set to "${prof}"`);
+    await refreshProfilesUI();
+  } catch (e) {
+    console.error('Failed to set active profile:', e);
+    alert('Failed to set active profile: ' + e.message);
+  }
 });
 
 btnCreateRunner && btnCreateRunner.addEventListener('click', async () => {
   const name = (newRunnerName.value || '').trim();
-  if (!name) return;
-  try { await apiPostForm('/api/create-runner', { name }); newRunnerName.value=''; await refreshProfilesUI(); }
-  catch(e){ console.error(e); }
+  if (!name) {
+    alert('Please enter a runner name');
+    return;
+  }
+  
+  // Validate: only alphanumeric characters (letters and numbers)
+  if (!/^[a-zA-Z0-9]+$/.test(name)) {
+    alert('Runner name can only contain letters (a-z, A-Z) and numbers (0-9)');
+    return;
+  }
+  
+  // FAT32 filesystem warning: short names (8 chars or less) will be converted to uppercase
+  // To preserve mixed case, the name should be longer than 8 characters
+  if (name.length <= 8 && name !== name.toUpperCase() && name !== name.toLowerCase()) {
+    const proceed = confirm(
+      `Note: FAT32 filesystems convert short folder names to UPPERCASE.\n\n` +
+      `"${name}" will appear as "${name.toUpperCase()}" in the list.\n\n` +
+      `To preserve mixed case, use more than 8 characters.\n\nContinue anyway?`
+    );
+    if (!proceed) return;
+  }
+  
+  try {
+    const result = await apiPostForm('/api/create-runner', { name });
+    
+    if (result.exists) {
+      alert(`Runner "${name}" already exists!`);
+    } else {
+      console.log(`Runner "${name}" created successfully`);
+      newRunnerName.value = '';
+      await refreshProfilesUI();
+    }
+  } catch(e) {
+    console.error('Failed to create runner:', e);
+    alert('Failed to create runner: ' + e.message);
+  }
 });
 
 btnMoveSelected && btnMoveSelected.addEventListener('click', async () => {
-  const prof = profileSelect.value; if (!prof) return;
+  const prof = profileSelect.value;
+  if (!prof) {
+    alert('Please select a profile first');
+    return;
+  }
   const selected = Array.from(unsortedList.selectedOptions).map(o=>o.value);
+  if (selected.length === 0) {
+    alert('Please select at least one run to move');
+    return;
+  }
+  
+  let successCount = 0;
   for (const fname of selected) {
     try {
       await apiPostForm('/api/move-run', { src: `${RESERVED_UNSORTED}/${fname}`, dst: `${prof}/${fname}` });
-    } catch (e) { console.error('Move failed for', fname, e); }
+      successCount++;
+    } catch (e) {
+      console.error('Move failed for', fname, e);
+      alert(`Failed to move ${fname}`);
+    }
+  }
+  
+  if (successCount > 0) {
+    console.log(`Moved ${successCount} run(s) to profile "${prof}"`);
+  }
+  await refreshRunsLists();
+});
+
+btnMoveToUnsorted && btnMoveToUnsorted.addEventListener('click', async () => {
+  const prof = profileSelect.value;
+  if (!prof) {
+    alert('Please select a profile first');
+    return;
+  }
+  const selected = Array.from(profileRunsList.selectedOptions).map(o=>o.value);
+  if (selected.length === 0) {
+    alert('Please select at least one run to move');
+    return;
+  }
+  
+  let successCount = 0;
+  for (const fname of selected) {
+    try {
+      await apiPostForm('/api/move-run', { src: `${prof}/${fname}`, dst: `${RESERVED_UNSORTED}/${fname}` });
+      successCount++;
+    } catch (e) {
+      console.error('Move to unsorted failed for', fname, e);
+      alert(`Failed to move ${fname}`);
+    }
+  }
+  
+  if (successCount > 0) {
+    console.log(`Moved ${successCount} run(s) back to unsorted`);
   }
   await refreshRunsLists();
 });
 
 btnRenameProfileRun && btnRenameProfileRun.addEventListener('click', async () => {
-  const prof = profileSelect.value; if (!prof) return;
+  const prof = profileSelect.value;
+  if (!prof) {
+    alert('Please select a profile first');
+    return;
+  }
   const selected = profileRunsList.selectedOptions;
-  if (selected.length !== 1) { console.log('Select exactly one run to rename'); return; }
+  if (selected.length === 0) {
+    alert('Please select a run to rename');
+    return;
+  }
+  if (selected.length > 1) {
+    alert('Please select exactly one run to rename');
+    return;
+  }
   const oldName = selected[0].value;
-  const newName = (renameRunInput.value || '').trim();
-  if (!newName) { console.log('Enter a new name'); return; }
+  let newName = (renameRunInput.value || '').trim();
+  if (!newName) {
+    alert('Please enter a new name');
+    return;
+  }
+  
+  // Ensure name starts with RUN and ends with .CSV
+  if (!newName.toUpperCase().startsWith('RUN')) {
+    alert('File name must start with "RUN"');
+    return;
+  }
+  if (!newName.toUpperCase().endsWith('.CSV')) {
+    newName += '.CSV';
+  }
+  
+  if (newName === oldName) {
+    alert('New name is the same as the old name');
+    return;
+  }
+  
   try {
     await apiPostForm('/api/rename-run', { folder: prof, old: oldName, new: newName });
+    console.log(`Renamed "${oldName}" to "${newName}"`);
     renameRunInput.value = '';
     await refreshRunsLists();
-  } catch (e) { console.error('Rename failed', e); }
+  } catch (e) {
+    console.error('Rename failed', e);
+    alert('Failed to rename: ' + e.message);
+  }
+});
+
+btnDownloadProfileRun && btnDownloadProfileRun.addEventListener('click', async () => {
+  const prof = profileSelect.value; if (!prof) return;
+  const selected = Array.from(profileRunsList.selectedOptions).map(o=>o.value);
+  if (selected.length === 0) { console.log('Select at least one run to download'); return; }
+  
+  // Download selected runs
+  for (const fname of selected) {
+    try {
+      const url = `/api/runs/${encodeURIComponent(prof + '/' + fname)}`;
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fname;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      // Small delay between downloads if multiple selected
+      if (selected.length > 1) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+    } catch (e) { 
+      console.error('Download failed for', fname, e); 
+      alert(`Failed to download ${fname}`);
+    }
+  }
+  
+  if (selected.length > 0) {
+    console.log(`Downloaded ${selected.length} file(s)`);
+  }
 });
 
 btnDeleteProfileRun && btnDeleteProfileRun.addEventListener('click', async () => {
   const prof = profileSelect.value; if (!prof) return;
   const selected = Array.from(profileRunsList.selectedOptions).map(o=>o.value);
-  if (selected.length === 0) { console.log('Select at least one run to delete'); return; }
-  if (!confirm(`Delete ${selected.length} run(s)?`)) return;
+  if (selected.length === 0) { 
+    alert('Select at least one run to delete'); 
+    return; 
+  }
+  
+  // Build confirmation message with file names
+  let message = `Delete ${selected.length} run(s) from profile "${prof}"?\n\n`;
+  if (selected.length <= 5) {
+    message += selected.join('\n');
+  } else {
+    message += selected.slice(0, 5).join('\n') + `\n... and ${selected.length - 5} more`;
+  }
+  
+  if (!confirm(message)) return;
+  
   for (const fname of selected) {
     try {
       await apiPostForm('/api/delete-run', { folder: prof, file: fname });
     } catch (e) { console.error('Delete failed for', fname, e); }
+  }
+  await refreshRunsLists();
+});
+
+btnDeleteUnsortedRun && btnDeleteUnsortedRun.addEventListener('click', async () => {
+  const selected = Array.from(unsortedList.selectedOptions).map(o=>o.value);
+  if (selected.length === 0) { 
+    alert('Select at least one run to delete'); 
+    return; 
+  }
+  
+  // Build confirmation message with file names
+  let message = `Delete ${selected.length} unsorted run(s)?\n\n`;
+  if (selected.length <= 5) {
+    message += selected.join('\n');
+  } else {
+    message += selected.slice(0, 5).join('\n') + `\n... and ${selected.length - 5} more`;
+  }
+  
+  if (!confirm(message)) return;
+  
+  for (const fname of selected) {
+    try {
+      // Unsorted runs are in the root directory (RESERVED_UNSORTED = '.')
+      await apiPostForm('/api/delete-run', { folder: RESERVED_UNSORTED, file: fname });
+    } catch (e) { 
+      console.error('Delete failed for', fname, e); 
+      alert(`Failed to delete ${fname}`);
+    }
   }
   await refreshRunsLists();
 });
@@ -265,6 +480,8 @@ function connect() {
 async function startHttpPolling() {
   if (pollingTimer) return; // Already running
   
+  let noDataWarningShown = false;
+  
   const fetchLiveData = async () => {
     if (!liveMode) return; // Skip if not in live mode
     
@@ -275,9 +492,19 @@ async function startHttpPolling() {
       const data = await resp.json();
       // data = { timestamp: <ms>, active: <bool>, run_id: <int>, sensors: [v1,v2,...v8] }
       
-      if (data.active && data.sensors && data.sensors.length === 8) {
-        // Pass individual sensor voltages for plotting
-        handleSensorData(data.sensors, data.timestamp);
+      if (data.sensors && data.sensors.length === 8) {
+        if (data.active) {
+          // Run is active, display data normally
+          handleSensorData(data.sensors, data.timestamp);
+          noDataWarningShown = false;
+        } else {
+          // No run active - show message once
+          if (!noDataWarningShown) {
+            logToConsole('Waiting for run... Press button on ESP32 to start data collection.');
+            updateWelcomeMsg('Connected - No active run', 'orange');
+            noDataWarningShown = true;
+          }
+        }
       }
     } catch (e) {
       // Log errors to help debugging
@@ -285,137 +512,91 @@ async function startHttpPolling() {
     }
   };
   
-  // Poll every 100ms for smoother real-time visualization
-  function updateHandlebarHeatmap() {
-    if (!handlebarRoot) return;
+  // Start polling immediately and then every 100ms
+  fetchLiveData();
+  pollingTimer = setInterval(fetchLiveData, 100);
+  logToConsole('HTTP polling started');
+}
 
-    // Collect candidate grip meshes (prefer names; fallback to heuristics)
-    const gripMeshes = [];
-    handlebarRoot.traverse(obj => {
-      if (obj.isMesh && obj.geometry && obj.geometry.isBufferGeometry) {
-        const name = (obj.name || '').toLowerCase();
-        const namedGrip = name.includes('grip') || name.includes('handle') || name.includes('barend');
-
-        const bbox = new THREE.Box3().setFromObject(obj);
-        const size = new THREE.Vector3();
-        bbox.getSize(size);
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const minDim = Math.min(size.x, size.y, size.z);
-
-        // Heuristic: grips are short segments compared to the main bar.
-        const isLikelyGrip = maxDim < 0.6 && minDim > 0.02;
-
-        // Exclude meshes that are extremely long (main bar)
-        const isMainBar = maxDim > 0.8 && minDim < 0.06;
-
-        if (!isMainBar && (namedGrip || isLikelyGrip)) {
-          gripMeshes.push(obj);
-        }
-      }
-    });
-
-    if (gripMeshes.length === 0) {
-      console.warn("No grip meshes detected; ensuring materials allow colors.");
-      // As fallback, enable vertexColors on all meshes to help debugging
-      handlebarRoot.traverse(obj => {
-        if (obj.isMesh) {
-          const mat = obj.material;
-          if (Array.isArray(mat)) {
-            mat.forEach(m => { m.vertexColors = true; m.color && m.color.set(0xffffff); m.needsUpdate = true; });
-          } else if (mat) {
-            mat.vertexColors = true;
-            mat.color && mat.color.set(0xffffff);
-            mat.needsUpdate = true;
-          }
-        }
-      });
-      return;
-    }
-
-    // Ensure we have 8 sensor values (4 right, 4 left)
-    const sensors = sensorPressures && sensorPressures.length >= 8
-      ? sensorPressures
-      : [50, 60, 70, 80, 50, 60, 70, 80];
-
-    // Determine left vs right by mesh centers along X
-    const centers = gripMeshes.map(m => new THREE.Box3().setFromObject(m).getCenter(new THREE.Vector3()));
-    const avgX = centers.reduce((s, c) => s + c.x, 0) / centers.length;
-
-    const leftSide = gripMeshes.filter((m, i) => centers[i].x < avgX);
-    const rightSide = gripMeshes.filter((m, i) => centers[i].x >= avgX);
-
-    const applyColorsToGrip = (mesh, side) => {
-      // Work on non-indexed copy to color per-vertex
-      const geom = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
-      const pos = geom.getAttribute('position');
-      const count = pos.count;
-
-      // Choose mapping axis by longest bbox dimension but avoid the bar's long axis; if very short in Y, use X/Z.
-      const bbox = new THREE.Box3().setFromObject(mesh);
-      const size = new THREE.Vector3();
-      bbox.getSize(size);
-      let axis = 'y';
-      const dims = [size.x, size.y, size.z];
-      const maxIdx = dims.indexOf(Math.max(...dims));
-      axis = maxIdx === 0 ? 'x' : maxIdx === 1 ? 'y' : 'z';
-
-      // If chosen axis range is tiny (e.g., flattened), pick another
-      const ranges = { x: Math.max(1e-6, Math.abs(bbox.max.x - bbox.min.x)), y: Math.max(1e-6, Math.abs(bbox.max.y - bbox.min.y)), z: Math.max(1e-6, Math.abs(bbox.max.z - bbox.min.z)) };
-      if (ranges[axis] < 0.02) {
-        axis = ranges.x >= ranges.z ? 'x' : 'z';
-      }
-
-      const min = bbox.min[axis];
-      const max = bbox.max[axis];
-
-      const colors = new Float32Array(count * 3);
-
-      const sideSensors = side === 'right' ? sensors.slice(0, 4) : sensors.slice(4, 8);
-
-      for (let i = 0; i < count; i++) {
-        const vx = pos.getX(i);
-        const vy = pos.getY(i);
-        const vz = pos.getZ(i);
-        const v = axis === 'x' ? vx : axis === 'y' ? vy : vz;
-        const t = THREE.MathUtils.clamp((v - min) / (max - min || 1), 0, 1);
-        const idx = Math.min(3, Math.floor(t * 4));
-        const pressure = sideSensors[idx];
-        const p = THREE.MathUtils.clamp(pressure, 0, 100) / 100;
-        const color = pressureToColor(p);
-        colors[i * 3 + 0] = color.r;
-        colors[i * 3 + 1] = color.g;
-        colors[i * 3 + 2] = color.b;
-      }
-
-      geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-      // Ensure material uses vertex colors and isn't multiplying by black
-      const mat = mesh.material;
-      if (Array.isArray(mat)) {
-        mat.forEach(m => {
-          m.vertexColors = true;
-          if (m.map) m.map = null;
-          m.color && m.color.set(0xffffff);
-          m.needsUpdate = true;
-        });
-      } else if (mat) {
-        mat.vertexColors = true;
-        if (mat.map) mat.map = null;
-        mat.color && mat.color.set(0xffffff);
-        mat.needsUpdate = true;
-      }
-
-      mesh.geometry = geom;
-    };
-
-    rightSide.forEach(m => applyColorsToGrip(m, 'right'));
-    leftSide.forEach(m => applyColorsToGrip(m, 'left'));
-
-    // Final render to show updates immediately
-    handlebarRenderer && handlebarRenderer.render(handlebarScene, handlebarCamera);
+// Stop HTTP polling
+function stopHttpPolling() {
+  if (pollingTimer) {
+    clearInterval(pollingTimer);
+    pollingTimer = null;
+    logToConsole('HTTP polling stopped');
   }
-  if (meanPressureEl) meanPressureEl.textContent = `${(sumPressure / sampleCount).toFixed(2)} N`;
-  if (maxPressureEl && isFinite(maxPressure)) maxPressureEl.textContent = `${maxPressure.toFixed(2)} N`;
+}
+
+// Handle incoming sensor data from ESP32
+function handleSensorData(voltages, timestamp) {
+  if (!voltages || voltages.length !== 8) return;
+  if (!liveMode || isPlottingCSV) return; // Don't update during CSV viewing
+  
+  // Initialize time reference if needed
+  if (t0 == null) t0 = Date.now();
+  
+  // Calculate relative time in seconds
+  const elapsedMs = timestamp || (Date.now() - t0);
+  const seconds = elapsedMs / 1000;
+  
+  // Update sample count
+  sampleCount += 1;
+  if (sampleCountEl) sampleCountEl.textContent = `${sampleCount}`;
+  if (durationEl) durationEl.textContent = `${seconds.toFixed(1)}s`;
+  
+  // Update sensor pressures for handlebar visualization
+  sensorPressures = voltages.map(v => (v / 3.3) * 100); // Convert voltage to pressure percentage
+  updateHandlebarHeatmap();
+  
+  // Prepare data for right handle (sensors 1-4) - one point per trace
+  const xDataRight = [[seconds], [seconds], [seconds], [seconds]];
+  const yDataRight = [[voltages[0]], [voltages[1]], [voltages[2]], [voltages[3]]];
+  
+  // Prepare data for left handle (sensors 5-8) - one point per trace
+  const xDataLeft = [[seconds], [seconds], [seconds], [seconds]];
+  const yDataLeft = [[voltages[4]], [voltages[5]], [voltages[6]], [voltages[7]]];
+  
+  // Extend traces (add new points)
+  Plotly.extendTraces(chartDivRight, { x: xDataRight, y: yDataRight }, [0, 1, 2, 3]);
+  Plotly.extendTraces(chartDivLeft, { x: xDataLeft, y: yDataLeft }, [0, 1, 2, 3]);
+  
+  // Update x-axis range to show rolling window
+  const windowStart = Math.max(0, seconds - LIVE_WINDOW_SECONDS);
+  Plotly.relayout(chartDivRight, {
+    'xaxis.range': [windowStart, seconds]
+  });
+  Plotly.relayout(chartDivLeft, {
+    'xaxis.range': [windowStart, seconds]
+  });
+  
+  // Trim old data points to prevent memory buildup (keep last 10 minutes of data)
+  if (chartDivRight.data && chartDivRight.data[0].x.length > 6000) {
+    const removeCount = chartDivRight.data[0].x.length - 6000;
+    Plotly.relayout(chartDivRight, {});
+    for (let i = 0; i < 4; i++) {
+      chartDivRight.data[i].x.splice(0, removeCount);
+      chartDivRight.data[i].y.splice(0, removeCount);
+    }
+  }
+  if (chartDivLeft.data && chartDivLeft.data[0].x.length > 6000) {
+    const removeCount = chartDivLeft.data[0].x.length - 6000;
+    Plotly.relayout(chartDivLeft, {});
+    for (let i = 0; i < 4; i++) {
+      chartDivLeft.data[i].x.splice(0, removeCount);
+      chartDivLeft.data[i].y.splice(0, removeCount);
+    }
+  }
+  
+  // Update KPI stats
+  const avgVoltage = voltages.reduce((a, b) => a + b, 0) / voltages.length;
+  const maxVoltage = Math.max(...voltages);
+  
+  sumPressure += avgVoltage;
+  if (avgVoltage > maxPressure) maxPressure = avgVoltage;
+  
+  if (latestPressureEl) latestPressureEl.textContent = `${avgVoltage.toFixed(2)} V`;
+  if (meanPressureEl) meanPressureEl.textContent = `${(sumPressure / sampleCount).toFixed(2)} V`;
+  if (maxPressureEl && isFinite(maxPressure)) maxPressureEl.textContent = `${maxPressure.toFixed(2)} V`;
 }
 
 function handlePressure(value, t) {
@@ -452,7 +633,6 @@ function logToConsole(msg) {
 // Buttons
 const simBtn = document.getElementById('toggleSim');
 const clearChartBtn = document.getElementById('btn_clear_chart');
-const downloadAllBtn = document.getElementById('btn_download_all');
 
 function sendToggle(label, value) {
   if (wSocket && wSocket.readyState === WebSocket.OPEN) {
@@ -576,127 +756,6 @@ window.addEventListener('load', () => {
   });
   langButtons.forEach(btn => btn.addEventListener('click', () => setLanguage(btn.dataset.lang)));
   setLanguage(loadLangPref());
-  
-  // Download all CSV files
-  if (downloadAllBtn) {
-    downloadAllBtn.addEventListener('click', async () => {
-      console.log('Download All button clicked');
-      
-      // Check if JSZip is available
-      if (typeof JSZip === 'undefined') {
-        alert('ZIP library not loaded. Downloading files individually...');
-        // Fallback to individual downloads
-        downloadFilesIndividually();
-        return;
-      }
-      
-      try {
-        console.log('Fetching run list from /api/runs');
-        downloadAllBtn.disabled = true;
-        downloadAllBtn.textContent = 'Downloading...';
-        
-        const resp = await fetch('/api/runs');
-        if (!resp.ok) {
-          console.error('Failed to fetch run list:', resp.status);
-          throw new Error('Failed to fetch run list');
-        }
-        const files = await resp.json();
-        console.log('Found files:', files);
-        
-        if (files.length === 0) {
-          alert('No CSV files found on SD card');
-          downloadAllBtn.disabled = false;
-          downloadAllBtn.textContent = 'Download All CSV';
-          return;
-        }
-        
-        // Create ZIP file
-        const zip = new JSZip();
-        
-        // Fetch all files and add to ZIP
-        for (let i = 0; i < files.length; i++) {
-          const filename = files[i];
-          const url = `/api/runs/${filename}`;
-          console.log(`Fetching file ${i+1}/${files.length}: ${filename}`);
-          downloadAllBtn.textContent = `Downloading ${i+1}/${files.length}...`;
-          
-          const fileResp = await fetch(url);
-          if (fileResp.ok) {
-            const blob = await fileResp.blob();
-            zip.file(filename, blob);
-          } else {
-            console.error(`Failed to download ${filename}`);
-          }
-          
-          // Small delay to avoid overwhelming ESP32
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-        
-        console.log('Creating ZIP file...');
-        downloadAllBtn.textContent = 'Creating ZIP...';
-        
-        // Generate ZIP file
-        const zipBlob = await zip.generateAsync({ type: 'blob' });
-        
-        // Create download link
-        const url = URL.createObjectURL(zipBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `SmartBike_Runs_${new Date().toISOString().slice(0,10)}.zip`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        
-        console.log(`ZIP download complete: ${files.length} files`);
-        alert(`Downloaded ${files.length} CSV file(s) as ZIP`);
-        
-      } catch (err) {
-        console.error('Error downloading files:', err);
-        alert('Error downloading files: ' + err.message);
-      } finally {
-        downloadAllBtn.disabled = false;
-        downloadAllBtn.textContent = 'Download All CSV';
-      }
-    });
-  } else {
-    console.warn('Download All button not found in DOM');
-  }
-  
-  // Fallback function for individual downloads
-  async function downloadFilesIndividually() {
-    try {
-      const resp = await fetch('/api/runs');
-      if (!resp.ok) throw new Error('Failed to fetch run list');
-      const files = await resp.json();
-      
-      if (files.length === 0) {
-        alert('No CSV files found on SD card');
-        return;
-      }
-      
-      for (let i = 0; i < files.length; i++) {
-        const filename = files[i];
-        const url = `/api/runs/${filename}`;
-        
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        
-        if (i < files.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 300));
-        }
-      }
-      
-      alert(`Downloaded ${files.length} CSV file(s)`);
-    } catch (err) {
-      console.error('Error downloading files:', err);
-      alert('Error downloading files: ' + err.message);
-    }
-  }
   
   // Sidebar nav
   navLinks.forEach(link => link.addEventListener('click', (e) => {
@@ -1580,7 +1639,7 @@ function frameObject(object3D) {
 // ---------- Handlebar 3D with Heatmap ----------
 let handlebarScene, handlebarCamera, handlebarRenderer, handlebarFrame;
 let handlebarModel;
-const sensorPressures = [0, 0, 0, 0, 0, 0, 0, 0]; // 8 sensors
+let sensorPressures = [0, 0, 0, 0, 0, 0, 0, 0]; // 8 sensors
 let handlebarRotation = { x: 0, y: 0 };
 let handlebarZoom = 2;
 let handlebarCenter = new THREE.Vector3(0, 0, 0);
@@ -2381,11 +2440,11 @@ async function loadAndPlotCSV(filename) {
     
     logToConsole(`Loaded ${filename} with ${lines.length - 1} samples`);
     
-    // Update KPIs
+    // Update KPIs if elements exist
     if (lines.length > 1) {
       const maxTime = Math.max(...Object.values(sensorData).flatMap(d => d.x));
-      durationEl.textContent = `${maxTime.toFixed(1)}s`;
-      sampleCountEl.textContent = `${lines.length - 1}`;
+      if (durationEl) durationEl.textContent = `${maxTime.toFixed(1)}s`;
+      if (sampleCountEl) sampleCountEl.textContent = `${lines.length - 1}`;
     }
   } catch (e) {
     alert('Failed to load CSV: ' + e.message);

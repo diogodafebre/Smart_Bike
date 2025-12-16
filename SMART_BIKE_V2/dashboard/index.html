@@ -28,7 +28,6 @@
       
       <!-- Chart control buttons moved to header -->
       <div class="chart-controls">
-        <button id="btn_download_all" class="btn" data-i18n="download_all">Download All CSV</button>
         <button id="btn_filters" class="btn" data-i18n="filters">Filters</button>
         <button id="btn_import_run" class="btn" data-i18n="import_run">Import run (CSV/TSV)</button>
         <input id="file_import" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" style="display:none" />
@@ -184,6 +183,7 @@
           <div class="controls-row">
             <label for="profile_select" data-i18n="active_profile">Active profile</label>
             <select id="profile_select" class="select" style="min-width:180px"></select>
+            <span id="active_profile_indicator" style="color:#28a745;font-weight:bold;margin-left:8px;"></span>
             <button id="btn_set_active" class="btn" data-i18n="set_active">Set Active</button>
             <input id="new_runner_name" class="select" data-i18n-placeholder="new_runner_placeholder" placeholder="New runner name" style="width:180px;margin-left:12px" />
             <button id="btn_create_runner" class="btn" data-i18n="create_runner">Create</button>
@@ -192,9 +192,13 @@
             <div style="flex:1">
               <h4 data-i18n="unsorted_runs">Unsorted runs</h4>
               <select id="unsorted_list" size="8" multiple class="select" style="width:100%"></select>
+              <div style="margin-top:8px;display:flex;gap:8px">
+                <button id="btn_delete_unsorted_run" class="btn" data-i18n="delete_run" style="background:#dc3545">Delete</button>
+              </div>
             </div>
             <div style="display:flex;flex-direction:column;align-items:center;padding:0 12px;gap:8px">
               <button id="btn_move_selected" class="btn" data-i18n="move_to_profile">→ Move to profile</button>
+              <button id="btn_move_to_unsorted" class="btn" data-i18n="move_to_unsorted">← Move to unsorted</button>
             </div>
             <div style="flex:1">
               <h4 data-i18n="profile_runs">Profile runs</h4>
@@ -202,6 +206,7 @@
               <div style="margin-top:8px;display:flex;gap:8px">
                 <input id="rename_run_input" class="select" data-i18n-placeholder="rename_placeholder" placeholder="New name" style="flex:1" />
                 <button id="btn_rename_profile_run" class="btn" data-i18n="rename_run">Rename</button>
+                <button id="btn_download_profile_run" class="btn" data-i18n="download_run" style="background:#28a745">Download</button>
                 <button id="btn_delete_profile_run" class="btn" data-i18n="delete_run" style="background:#dc3545">Delete</button>
               </div>
             </div>

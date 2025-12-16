@@ -497,9 +497,29 @@ static esp_err_t api_move_run_handler(httpd_req_t *req) {
     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad names");
     return ESP_FAIL;
   }
-  char fromPath[256]; snprintf(fromPath, sizeof(fromPath), "/sdcard/%s/%s", srcFolder, srcFile);
-  char toDir[256]; snprintf(toDir, sizeof(toDir), "/sdcard/%s", dstFolder);
-  char toPath[256]; snprintf(toPath, sizeof(toPath), "/sdcard/%s/%s", dstFolder, dstFile);
+  
+  // Build paths, handling root directory (.) specially
+  char fromPath[256];
+  if (strcmp(srcFolder, ".") == 0) {
+    snprintf(fromPath, sizeof(fromPath), "/sdcard/%s", srcFile);
+  } else {
+    snprintf(fromPath, sizeof(fromPath), "/sdcard/%s/%s", srcFolder, srcFile);
+  }
+  
+  char toDir[256];
+  if (strcmp(dstFolder, ".") == 0) {
+    snprintf(toDir, sizeof(toDir), "/sdcard");
+  } else {
+    snprintf(toDir, sizeof(toDir), "/sdcard/%s", dstFolder);
+  }
+  
+  char toPath[256];
+  if (strcmp(dstFolder, ".") == 0) {
+    snprintf(toPath, sizeof(toPath), "/sdcard/%s", dstFile);
+  } else {
+    snprintf(toPath, sizeof(toPath), "/sdcard/%s/%s", dstFolder, dstFile);
+  }
+  
   // ensure dest dir exists
   struct stat st; if (stat(toDir, &st) != 0) { mkdir(toDir, 0775); }
   // move
@@ -591,8 +611,16 @@ static esp_err_t api_delete_run_handler(httpd_req_t *req) {
   sscanf(fp, "folder=%99[^&]", folder); sscanf(ffp, "file=%99[^&]", file);
   for (char* p=folder; *p; ++p) if (*p=='%'&&p[1]=='2'&&(p[2]=='F'||p[2]=='f')) { *p='/'; memmove(p+1,p+3,strlen(p+3)+1);}
   for (char* p=file; *p; ++p) if (*p=='%'&&p[1]=='2'&&(p[2]=='F'||p[2]=='f')) { *p='/'; memmove(p+1,p+3,strlen(p+3)+1);}
-  if (!is_safe_name(folder)||!is_safe_name(file)) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad names"); return ESP_FAIL; }
-  char path[256]; snprintf(path, sizeof(path), "/sdcard/%s/%s", folder, file);
+  // Allow "." for root folder, otherwise check if safe
+  if (strcmp(folder, ".") != 0 && !is_safe_name(folder)) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad folder"); return ESP_FAIL; }
+  if (!is_safe_name(file)) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad filename"); return ESP_FAIL; }
+  // Build path: if folder is ".", use root directly
+  char path[256]; 
+  if (strcmp(folder, ".") == 0) {
+    snprintf(path, sizeof(path), "/sdcard/%s", file);
+  } else {
+    snprintf(path, sizeof(path), "/sdcard/%s/%s", folder, file);
+  }
   if (unlink(path)!=0) { httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "delete failed"); return ESP_FAIL; }
   httpd_resp_set_type(req, "application/json");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
