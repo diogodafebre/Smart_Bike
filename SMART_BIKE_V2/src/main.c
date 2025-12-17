@@ -6,6 +6,7 @@
 
 #include "driver/gpio.h"
 #include "driver/i2c.h"
+#include "driver/sdmmc_host.h"
 #include "driver/spi_master.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
@@ -13,7 +14,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sdmmc_cmd.h"
-
 // Définition des Pins et Canaux pour ESP32-C3
 // GPIO 0 correspond au Canal 0 de l'ADC 1
 #define ADC1_CHAN0 ADC_CHANNEL_0
@@ -38,6 +38,11 @@
 #define SD_CLK 8
 #define SD_DO 9
 
+#define PIN_NUM_MISO SD_DO
+#define PIN_NUM_MOSI SD_DI
+#define PIN_NUM_CLK SD_CLK
+#define PIN_NUM_CS SD_CS
+
 // Define i2c pins for ICM-42670-P
 #define I2C_SDA 10
 #define I2C_SCL 8
@@ -55,9 +60,16 @@
 #define I2C_MASTER_NUM I2C_NUM_0
 #define TIMEOUT_MS 50
 
+#define EXAMPLE_MAX_CHAR_SIZE 64
+
 static const char* TAG = "MAIN";
 static icm42670_handle_t icm42670 = NULL;
 static i2c_master_bus_handle_t i2c_handle = NULL;
+
+#define MOUNT_POINT "/sdcard"
+const char mount_point[] = MOUNT_POINT;
+sdmmc_card_t* card;
+sdmmc_host_t host;
 
 static void i2c_bus_init(void) {
     const i2c_master_bus_config_t bus_config = {
@@ -86,6 +98,135 @@ static void i2c_sensor_icm42670_init(void) {
     ret = icm42670_config(icm42670, &imu_cfg);
 }
 
+static esp_err_t s_write_file(const char* path, char* data) {
+    ESP_LOGI(TAG, "Opening file %s", path);
+    FILE* f = fopen(path, "w");
+    if (f == NULL) {
+        ESP_LOGE(TAG, "Failed to open file for writing");
+        return ESP_FAIL;
+    }
+    fprintf(f, data);
+    fclose(f);
+    ESP_LOGI(TAG, "File written");
+
+    return ESP_OK;
+}
+
+void sdcard_init(void) {
+    esp_err_t ret;
+
+    // Options for mounting the filesystem.
+    // If format_if_mount_failed is set to true, SD card will be partitioned and
+    // formatted in case when mounting fails.
+    esp_vfs_fat_sdmmc_mount_config_t mount_config = { .format_if_mount_failed = false, .max_files = 5, .allocation_unit_size = 16 * 1024 };
+
+    ESP_LOGI(TAG, "Initializing SD card");
+    ESP_LOGI(TAG, "Using SPI peripheral");
+    sdmmc_host_t _host = SDSPI_HOST_DEFAULT();
+    host = _host;
+
+    spi_bus_config_t bus_cfg = {
+        .mosi_io_num = PIN_NUM_MOSI,
+        .miso_io_num = PIN_NUM_MISO,
+        .sclk_io_num = PIN_NUM_CLK,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = 4000,
+    };
+
+    ret = spi_bus_initialize(host.slot, &bus_cfg, SDSPI_DEFAULT_DMA);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize bus.");
+        return;
+    }
+
+    sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
+    slot_config.gpio_cs = PIN_NUM_CS;
+    slot_config.host_id = host.slot;
+
+    ESP_LOGI(TAG, "Mounting filesystem");
+    ret = esp_vfs_fat_sdspi_mount(mount_point, &host, &slot_config, &mount_config, &card);
+
+    if (ret != ESP_OK) {
+        if (ret == ESP_FAIL) {
+            ESP_LOGE(
+                TAG,
+                "Failed to mount filesystem. "
+                "If you want the card to be formatted, set the CONFIG_EXAMPLE_FORMAT_IF_MOUNT_FAILED menuconfig option.");
+        } else {
+            ESP_LOGE(
+                TAG,
+                "Failed to initialize the card (%s). "
+                "Make sure SD card lines have pull-up resistors in place.",
+                esp_err_to_name(ret));
+        }
+        return;
+    }
+    ESP_LOGI(TAG, "Filesystem mounted");
+
+    sdmmc_card_print_info(stdout, card);
+}
+
+void sdcard_test_filesystem() {
+    esp_err_t ret;
+    const char* file_hello = MOUNT_POINT "/hello.txt";
+    char data[EXAMPLE_MAX_CHAR_SIZE];
+    snprintf(data, EXAMPLE_MAX_CHAR_SIZE, "%s %s!\n", "Hello", card->cid.name);
+    ret = s_write_file(file_hello, data);
+    if (ret != ESP_OK) {
+        return;
+    }
+
+    const char* file_foo = MOUNT_POINT "/foo.txt";
+
+    // Check if destination file exists before renaming
+    struct stat st;
+    if (stat(file_foo, &st) == 0) {
+        // Delete it if it exists
+        unlink(file_foo);
+    }
+
+    // Rename original file
+    ESP_LOGI(TAG, "Renaming file %s to %s", file_hello, file_foo);
+    if (rename(file_hello, file_foo) != 0) {
+        ESP_LOGE(TAG, "Rename failed");
+        return;
+    }
+
+    // Format FATFS
+#ifdef CONFIG_EXAMPLE_FORMAT_SD_CARD
+    ret = esp_vfs_fat_sdcard_format(mount_point, card);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to format FATFS (%s)", esp_err_to_name(ret));
+        return;
+    }
+
+    if (stat(file_foo, &st) == 0) {
+        ESP_LOGI(TAG, "file still exists");
+        return;
+    } else {
+        ESP_LOGI(TAG, "file doesn't exist, formatting done");
+    }
+#endif  // CONFIG_EXAMPLE_FORMAT_SD_CARD
+
+    const char* file_nihao = MOUNT_POINT "/nihao.txt";
+    memset(data, 0, EXAMPLE_MAX_CHAR_SIZE);
+    snprintf(data, EXAMPLE_MAX_CHAR_SIZE, "%s %s!\n", "Nihao", card->cid.name);
+    ret = s_write_file(file_nihao, data);
+    if (ret != ESP_OK) {
+        return;
+    }
+}
+
+void sdcard_deinit() {
+    // All done, unmount partition and disable SPI peripheral
+    esp_vfs_fat_sdcard_unmount(mount_point, card);
+    ESP_LOGI(TAG, "Card unmounted");
+
+    // deinitialize the bus after all devices are removed
+    spi_bus_free(host.slot);
+}
+
 void app_main(void) {
     // Set pin 6 to output to low
     ESP_LOGI(TAG, "START");
@@ -94,7 +235,8 @@ void app_main(void) {
     // uint8_t io[] = { 1, 2, 6, 7, 3, 4, 8, 10 };
     // uint8_t index = 0;
     // gpio_config_t out_conf = { .pin_bit_mask =
-    //                                (1ULL << 6) | (1ULL << 7) | (1ULL << 3) | (1ULL << 4) | (1ULL << 8) | (1ULL << 10) | (1ULL << 1) | (1ULL << 2),
+    //                                (1ULL << 6) | (1ULL << 7) | (1ULL << 3) | (1ULL << 4) | (1ULL << 8) | (1ULL << 10) | (1ULL << 1) | (1ULL <<
+    //                                2),
     //                            .mode = GPIO_MODE_OUTPUT,
     //                            .pull_up_en = GPIO_PULLUP_DISABLE,
     //                            .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -172,7 +314,7 @@ void app_main(void) {
     //     }
     // }
 
-    ESP_LOGI(TAG, "Testing ICM Device...");
+    // ESP_LOGI(TAG, "Testing ICM Device...");
 
     // i2c_config_t conf = {
     //     .mode = I2C_MODE_MASTER,
@@ -209,7 +351,42 @@ void app_main(void) {
     // ESP_LOGI(TAG, "ICM détecté à l'adresse 0x%02X", ICM_ADDRESS);
     // ESP_LOGI(TAG, "Debut de la lecture des angles...");
 
+    vTaskDelay(pdMS_TO_TICKS(5000));
+    ESP_LOGI(TAG, "Initialisation SD Card");
+    sdcard_init();
+    ESP_LOGI(TAG, "Testing SD Card filesystem");
+    sdcard_test_filesystem();
+    ESP_LOGI(TAG, "Deinitialisation SD Card");
+    sdcard_deinit();
     while (1) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+
+    while (1) {
+        // uint8_t g_run_id = 0;
+        // bool g_run_active = false;
+        // uint32_t g_samples_since_flush = 0;
+
+        // ESP_LOGI(TAG, "Initialisation SD...");
+        // sdcard_init();
+        // ESP_LOGI(TAG, "END SD");
+        // g_run_id = find_next_run_index();
+        // char path[64];
+        // snprintf(path, sizeof(path), "/sdcard/RUN%d.CSV", g_run_id);
+        // // g_run_file = fopen(path, "w");
+        // if (g_run_file == NULL) {
+        //     ESP_LOGE(TAG, "Failed to create file for run %d", g_run_id);
+        //     vTaskDelay(pdMS_TO_TICKS(1000));
+        //     continue;
+        // }
+
+        // // print header
+        // fprintf(g_run_file, "Time(ms), Temp(C), Roll(deg), Pitch(deg), FSR_B0, FSR_B1, FSR_B2, FSR_B3, FSR_A0, FSR_A1, FSR_A2, FSR_A3\n");
+        // fflush(g_run_file);
+
+        // ESP_LOGI(TAG, "Starting run %d", g_run_id);
+        // g_run_active = true;
+
         adc_oneshot_unit_handle_t adc1_handle;
         adc_oneshot_unit_init_cfg_t init_config1 = {
             .unit_id = ADC_UNIT_1,
@@ -243,11 +420,11 @@ void app_main(void) {
         int adc_raw_b[4] = { 0 };  // FSR_B (GPIO 0)
         int adc_raw_a[4] = { 0 };  // FSR_A (GPIO 5)
 
-        i2c_sensor_icm42670_init();
+        // i2c_sensor_icm42670_init();
 
-        /* Set accelerometer and gyroscope to ON */
-        ret = icm42670_acce_set_pwr(icm42670, ACCE_PWR_LOWNOISE);
-        ret = icm42670_gyro_set_pwr(icm42670, GYRO_PWR_LOWNOISE);
+        // /* Set accelerometer and gyroscope to ON */
+        // ret = icm42670_acce_set_pwr(icm42670, ACCE_PWR_LOWNOISE);
+        // ret = icm42670_gyro_set_pwr(icm42670, GYRO_PWR_LOWNOISE);
 
         while (1) {
             for (int i = 0; i < 10; i++) {
@@ -306,6 +483,12 @@ void app_main(void) {
                 adc_raw_a[1],
                 adc_raw_a[2],
                 adc_raw_a[3]);
+            // fputs(buffer, g_run_file);
+            // g_samples_since_flush++;
+            // if (g_samples_since_flush >= 100) {
+            //     fflush(g_run_file);
+            //     g_samples_since_flush = 0;
+            // }
         }
         icm42670_delete(icm42670);
         ret = i2c_del_master_bus(i2c_handle);
@@ -373,7 +556,8 @@ void app_main(void) {
     // esp_err_t ret;
 
     // // 1. Configuration du montage (Mount Config)
-    // esp_vfs_fat_sdmmc_mount_config_t mount_config = { .format_if_mount_failed = true,  // Formater si le montage échoue (carte neuve ou corrompue)
+    // esp_vfs_fat_sdmmc_mount_config_t mount_config = { .format_if_mount_failed = true,  // Formater si le montage échoue (carte neuve ou
+    // corrompue)
     //                                                   .max_files = 5,
     //                                                   .allocation_unit_size = 16 * 1024 };
 
