@@ -59,27 +59,27 @@ void app_main(void) {
     // Set pin 6 to output to low
     ESP_LOGI(TAG, "START");
 
-    // // Test GPIO outputs
-    // uint8_t io[] = { 1, 2, 6, 7, 3, 4, 8, 10 };
-    // uint8_t index = 0;
-    // gpio_config_t out_conf = { .pin_bit_mask =
-    //                                (1ULL << 6) | (1ULL << 7) | (1ULL << 3) | (1ULL << 4) | (1ULL << 8) | (1ULL << 10) | (1ULL << 1) | (1ULL << 2),
-    //                            .mode = GPIO_MODE_OUTPUT,
-    //                            .pull_up_en = GPIO_PULLUP_DISABLE,
-    //                            .pull_down_en = GPIO_PULLDOWN_DISABLE,
-    //                            .intr_type = GPIO_INTR_DISABLE };
+    // Test GPIO outputs
+    uint8_t io[] = { 1, 2, 6, 7, 3, 4, 8, 10 };
+    uint8_t index = 0;
+    gpio_config_t out_conf = { .pin_bit_mask =
+                                   (1ULL << 6) | (1ULL << 7) | (1ULL << 3) | (1ULL << 4) | (1ULL << 8) | (1ULL << 10) | (1ULL << 1) | (1ULL << 2),
+                               .mode = GPIO_MODE_OUTPUT,
+                               .pull_up_en = GPIO_PULLUP_DISABLE,
+                               .pull_down_en = GPIO_PULLDOWN_DISABLE,
+                               .intr_type = GPIO_INTR_DISABLE };
 
-    // gpio_config(&out_conf);
-    // static uint8_t level = 0;
-    // while (1) {
-    //     for (int i = 0; i < 6; i++) {
-    //         gpio_set_level(io[i], index & (1 << i) ? 1 : 0);
-    //     }
-    //     index++;
-    //     // index %= 64;
-    //     ESP_LOGI(TAG, "IO Level: %02X", index);
-    //     vTaskDelay(pdMS_TO_TICKS(100));
-    // }
+    gpio_config(&out_conf);
+    static uint8_t level = 0;
+    while (1) {
+        for (int i = 0; i < 6; i++) {
+            gpio_set_level(io[i], index & (1 << i) ? 1 : 0);
+        }
+        index++;
+        // index %= 64;
+        ESP_LOGI(TAG, "IO Level: %02X", index);
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
 
     // // Test i2c - Va tester tous les adresses i2c de 1 à 127 et afficher les adresses qui répondent
     // ESP_LOGI(TAG, "Testing I2C device...");
