@@ -1,3 +1,4 @@
+#include <icm42670.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -40,6 +41,7 @@
 // Define i2c pins for ICM-42670-P
 #define I2C_SDA 10
 #define I2C_SCL 8
+#define RAD_TO_DEG 57.2957795131
 
 // Define constants
 #define FSR_COUNT 8
@@ -54,224 +56,394 @@
 #define TIMEOUT_MS 50
 
 static const char* TAG = "MAIN";
+static icm42670_handle_t icm42670 = NULL;
+static i2c_master_bus_handle_t i2c_handle = NULL;
+
+static void i2c_bus_init(void) {
+    const i2c_master_bus_config_t bus_config = {
+        .i2c_port = I2C_MASTER_NUM,
+        .sda_io_num = I2C_MASTER_SDA_IO,
+        .scl_io_num = I2C_MASTER_SCL_IO,
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+    };
+
+    esp_err_t ret = i2c_new_master_bus(&bus_config, &i2c_handle);
+}
+
+static void i2c_sensor_icm42670_init(void) {
+    esp_err_t ret;
+
+    i2c_bus_init();
+    ret = icm42670_create(i2c_handle, ICM42670_I2C_ADDRESS, &icm42670);
+
+    /* Configuration of the accelerometer and gyroscope */
+    const icm42670_cfg_t imu_cfg = {
+        .acce_fs = ACCE_FS_2G,
+        .acce_odr = ACCE_ODR_400HZ,
+        .gyro_fs = GYRO_FS_2000DPS,
+        .gyro_odr = GYRO_ODR_400HZ,
+    };
+    ret = icm42670_config(icm42670, &imu_cfg);
+}
 
 void app_main(void) {
     // Set pin 6 to output to low
     ESP_LOGI(TAG, "START");
 
-    // Test GPIO outputs
-    uint8_t io[] = { 1, 2, 6, 7, 3, 4, 8, 10 };
-    uint8_t index = 0;
-    gpio_config_t out_conf = { .pin_bit_mask =
-                                   (1ULL << 6) | (1ULL << 7) | (1ULL << 3) | (1ULL << 4) | (1ULL << 8) | (1ULL << 10) | (1ULL << 1) | (1ULL << 2),
-                               .mode = GPIO_MODE_OUTPUT,
-                               .pull_up_en = GPIO_PULLUP_DISABLE,
-                               .pull_down_en = GPIO_PULLDOWN_DISABLE,
-                               .intr_type = GPIO_INTR_DISABLE };
+    // // Test GPIO outputs
+    // uint8_t io[] = { 1, 2, 6, 7, 3, 4, 8, 10 };
+    // uint8_t index = 0;
+    // gpio_config_t out_conf = { .pin_bit_mask =
+    //                                (1ULL << 6) | (1ULL << 7) | (1ULL << 3) | (1ULL << 4) | (1ULL << 8) | (1ULL << 10) | (1ULL << 1) | (1ULL << 2),
+    //                            .mode = GPIO_MODE_OUTPUT,
+    //                            .pull_up_en = GPIO_PULLUP_DISABLE,
+    //                            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+    //                            .intr_type = GPIO_INTR_DISABLE };
 
-    gpio_config(&out_conf);
-    static uint8_t level = 0;
+    // gpio_config(&out_conf);
+    // static uint8_t level = 0;
+    // while (1) {
+    //     for (int i = 0; i < 6; i++) {
+    //         gpio_set_level(io[i], index & (1 << i) ? 1 : 0);
+    //     }
+    //     index++;
+    //     // index %= 64;
+    //     ESP_LOGI(TAG, "IO Level: %02X", index);
+    //     vTaskDelay(pdMS_TO_TICKS(100));
+    // }
+
+    // // // Test i2c - Va tester tous les adresses i2c de 1 à 127 et afficher les adresses qui répondent
+    // // ESP_LOGI(TAG, "Testing I2C device...");
+    // uint8_t addr = 0x00;
+
+    // while (1) {
+    //     i2c_config_t conf = {
+    //         .mode = I2C_MODE_MASTER,
+    //         .sda_io_num = I2C_MASTER_SDA_IO,
+    //         .scl_io_num = I2C_MASTER_SCL_IO,
+    //         .sda_pullup_en = GPIO_PULLUP_ENABLE,  // Active les résistances internes
+    //         .scl_pullup_en = GPIO_PULLUP_ENABLE,
+    //         .master.clk_speed = I2C_MASTER_FREQ_HZ,
+    //     };
+
+    //     esp_err_t err = i2c_param_config(I2C_MASTER_NUM, &conf);
+    //     if (err != ESP_OK) {
+    //         ESP_LOGE(TAG, "Erreur config I2C");
+    //         return;
+    //     }
+
+    //     err = i2c_driver_install(I2C_MASTER_NUM, conf.mode, 0, 0, 0);
+    //     if (err != ESP_OK) {
+    //         ESP_LOGE(TAG, "Erreur installation driver I2C");
+    //         return;
+    //     }
+
+    //     ESP_LOGI(TAG, "Scanner prêt. Début du scan en boucle...");
+
+    //     while (1) {
+    //         ESP_LOGI(TAG, "--- Scan en cours ---");
+    //         int devices_found = 0;
+
+    //         // On teste toutes les adresses possibles (1 à 127)
+    //         for (int i = 1; i < 127; i++) {
+    //             // i = 0x68;
+    //             i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    //             i2c_master_start(cmd);
+    //             // On envoie l'adresse + bit d'écriture (0) pour voir si on reçoit un ACK
+    //             i2c_master_write_byte(cmd, (i << 1) | I2C_MASTER_WRITE, true);
+    //             i2c_master_stop(cmd);
+
+    //             esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(TIMEOUT_MS));
+    //             i2c_cmd_link_delete(cmd);
+
+    //             if (ret == ESP_OK) {
+    //                 ESP_LOGI(TAG, "Périphérique trouvé à l'adresse: 0x%02X", i);
+    //                 devices_found++;
+    //             }
+    //         }
+
+    //         if (devices_found == 0) {
+    //             ESP_LOGW(TAG, "Aucun périphérique I2C trouvé !");
+    //         } else {
+    //             ESP_LOGI(TAG, "Fin du scan. %d périphérique(s) trouvé(s).", devices_found);
+    //         }
+    //         ESP_LOGI(TAG, "RETRY");
+    //         vTaskDelay(pdMS_TO_TICKS(2000));  // Pause de 2 secondes avant de recommencer
+    //     }
+    // }
+
+    ESP_LOGI(TAG, "Testing ICM Device...");
+
+    // i2c_config_t conf = {
+    //     .mode = I2C_MODE_MASTER,
+    //     .sda_io_num = I2C_MASTER_SDA_IO,
+    //     .scl_io_num = I2C_MASTER_SCL_IO,
+    //     .sda_pullup_en = GPIO_PULLUP_ENABLE,  // Active les résistances internes
+    //     .scl_pullup_en = GPIO_PULLUP_ENABLE,
+    //     .master.clk_speed = I2C_MASTER_FREQ_HZ,
+    // };
+    // esp_err_t err = i2c_param_config(I2C_MASTER_NUM, &conf);
+    // if (err != ESP_OK) {
+    //     ESP_LOGE(TAG, "Erreur config I2C");
+    //     return;
+    // }
+
+    // err = i2c_driver_install(I2C_MASTER_NUM, conf.mode, 0, 0, 0);
+    // if (err != ESP_OK) {
+    //     ESP_LOGE(TAG, "Erreur installation driver I2C");
+    //     return;
+    // }
+
+    // i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    // i2c_master_start(cmd);
+    // i2c_master_write_byte(cmd, (ICM_ADDRESS << 1) | I2C_MASTER_WRITE, true);
+    // i2c_master_stop(cmd);
+
+    // esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(TIMEOUT_MS));
+    // i2c_cmd_link_delete(cmd);
+
+    // if (ret != ESP_OK) {
+    //     ESP_LOGI(TAG, "ICM non détecté à l'adresse 0x%02X", ICM_ADDRESS);
+    //     return;
+    // }
+    // ESP_LOGI(TAG, "ICM détecté à l'adresse 0x%02X", ICM_ADDRESS);
+    // ESP_LOGI(TAG, "Debut de la lecture des angles...");
+
     while (1) {
-        for (int i = 0; i < 6; i++) {
-            gpio_set_level(io[i], index & (1 << i) ? 1 : 0);
-        }
-        index++;
-        // index %= 64;
-        ESP_LOGI(TAG, "IO Level: %02X", index);
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
+        adc_oneshot_unit_handle_t adc1_handle;
+        adc_oneshot_unit_init_cfg_t init_config1 = {
+            .unit_id = ADC_UNIT_1,
+            .ulp_mode = ADC_ULP_MODE_DISABLE,
+        };
+        ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
 
-    // // Test i2c - Va tester tous les adresses i2c de 1 à 127 et afficher les adresses qui répondent
-    // ESP_LOGI(TAG, "Testing I2C device...");
-    uint8_t addr = 0x00;
+        // --- 2. Initialisation de l'Unité ADC 2 (Pour GPIO 5) ---
+        adc_oneshot_unit_handle_t adc2_handle;
+        adc_oneshot_unit_init_cfg_t init_config2 = {
+            .unit_id = ADC_UNIT_2,
+            .ulp_mode = ADC_ULP_MODE_DISABLE,
+        };
+        ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config2, &adc2_handle));
 
-    while (1) {
-        i2c_config_t conf = {
-            .mode = I2C_MODE_MASTER,
-            .sda_io_num = I2C_MASTER_SDA_IO,
-            .scl_io_num = I2C_MASTER_SCL_IO,
-            .sda_pullup_en = GPIO_PULLUP_ENABLE,  // Active les résistances internes
-            .scl_pullup_en = GPIO_PULLUP_ENABLE,
-            .master.clk_speed = I2C_MASTER_FREQ_HZ,
+        // --- 3. Configuration des Canaux (Atténuation) ---
+        // ATTEN_DB_12 permet de lire jusqu'à env. 3.0V - 3.3V (Full Range)
+        // Si on laisse par défaut, ça sature à 1.1V
+        adc_oneshot_chan_cfg_t config = {
+            .bitwidth = ADC_BITWIDTH_DEFAULT,  // Résolution 12 bits (0-4095)
+            .atten = ADC_ATTEN_DB_11,
         };
 
-        esp_err_t err = i2c_param_config(I2C_MASTER_NUM, &conf);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "Erreur config I2C");
-            return;
-        }
+        ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC1_CHAN0, &config));
+        ESP_ERROR_CHECK(adc_oneshot_config_channel(adc2_handle, ADC2_CHAN0, &config));
 
-        err = i2c_driver_install(I2C_MASTER_NUM, conf.mode, 0, 0, 0);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "Erreur installation driver I2C");
-            return;
-        }
+        esp_err_t ret;
+        icm42670_value_t acc, gyro;
+        complimentary_angle_t complimentary_angle;
+        float temperature;
+        int adc_raw_b[4] = { 0 };  // FSR_B (GPIO 0)
+        int adc_raw_a[4] = { 0 };  // FSR_A (GPIO 5)
 
-        ESP_LOGI(TAG, "Scanner prêt. Début du scan en boucle...");
+        i2c_sensor_icm42670_init();
+
+        /* Set accelerometer and gyroscope to ON */
+        ret = icm42670_acce_set_pwr(icm42670, ACCE_PWR_LOWNOISE);
+        ret = icm42670_gyro_set_pwr(icm42670, GYRO_PWR_LOWNOISE);
 
         while (1) {
-            ESP_LOGI(TAG, "--- Scan en cours ---");
-            int devices_found = 0;
-
-            // On teste toutes les adresses possibles (1 à 127)
-            for (int i = 1; i < 127; i++) {
-                // i = 0x68;
-                i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-                i2c_master_start(cmd);
-                // On envoie l'adresse + bit d'écriture (0) pour voir si on reçoit un ACK
-                i2c_master_write_byte(cmd, (i << 1) | I2C_MASTER_WRITE, true);
-                i2c_master_stop(cmd);
-
-                esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(TIMEOUT_MS));
-                i2c_cmd_link_delete(cmd);
-
-                if (ret == ESP_OK) {
-                    ESP_LOGI(TAG, "Périphérique trouvé à l'adresse: 0x%02X", i);
-                    devices_found++;
-                }
+            for (int i = 0; i < 10; i++) {
+                vTaskDelay(pdMS_TO_TICKS(1));
+                ret = icm42670_get_acce_value(icm42670, &acc);
+                ret = icm42670_get_gyro_value(icm42670, &gyro);
+                ret = icm42670_get_temp_value(icm42670, &temperature);
+                ret = icm42670_complimentory_filter(icm42670, &acc, &gyro, &complimentary_angle);
             }
 
-            if (devices_found == 0) {
-                ESP_LOGW(TAG, "Aucun périphérique I2C trouvé !");
-            } else {
-                ESP_LOGI(TAG, "Fin du scan. %d périphérique(s) trouvé(s).", devices_found);
+            for (int i = 0; i < FSR_COUNT; i++) {
+                ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC1_CHAN0, &adc_raw_b[i]));
+                ESP_ERROR_CHECK(adc_oneshot_read(adc2_handle, ADC2_CHAN0, &adc_raw_a[i]));
             }
-            ESP_LOGI(TAG, "RETRY");
-            vTaskDelay(pdMS_TO_TICKS(2000));  // Pause de 2 secondes avant de recommencer
+
+            // ESP_LOGI(
+            //     TAG,
+            //     "acc_x:%.2f, acc_y:%.2f, acc_z:%.2f, gyro_x:%.2f, gyro_y:%.2f, gyro_z:%.2f temp: %.1f Roll: %.2f Pitch: %.2f",
+            //     acc.x,
+            //     acc.y,
+            //     acc.z,
+            //     gyro.x,
+            //     gyro.y,
+            //     gyro.z,
+            //     temperature,
+            //     complimentary_angle.roll,
+            //     complimentary_angle.pitch);
+            ESP_LOGI(
+                TAG,
+                "temp: %.1f Roll: %.2f Pitch: %.2f | FSR_B: %d,%d,%d,%d | FSR_A: %d,%d,%d,%d",
+                temperature,
+                complimentary_angle.roll,
+                complimentary_angle.pitch,
+                adc_raw_b[0],
+                adc_raw_b[1],
+                adc_raw_b[2],
+                adc_raw_b[3],
+                adc_raw_a[0],
+                adc_raw_a[1],
+                adc_raw_a[2],
+                adc_raw_a[3]);
+
+            char buffer[256];
+            snprintf(
+                buffer,
+                sizeof(buffer),
+                "%.1f, %.2f, %.2f, %d, %d, %d, %d, %d, %d, %d, %d\n",
+                temperature,
+                complimentary_angle.roll,
+                complimentary_angle.pitch,
+                adc_raw_b[0],
+                adc_raw_b[1],
+                adc_raw_b[2],
+                adc_raw_b[3],
+                adc_raw_a[0],
+                adc_raw_a[1],
+                adc_raw_a[2],
+                adc_raw_a[3]);
         }
+        icm42670_delete(icm42670);
+        ret = i2c_del_master_bus(i2c_handle);
+
+        vTaskDelay(1000);
     }
 
-    // Test analog inputs
-    adc_oneshot_unit_handle_t adc1_handle;
-    adc_oneshot_unit_init_cfg_t init_config1 = {
-        .unit_id = ADC_UNIT_1,
-        .ulp_mode = ADC_ULP_MODE_DISABLE,
-    };
-    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
+    // // Test analog inputs
+    // adc_oneshot_unit_handle_t adc1_handle;
+    // adc_oneshot_unit_init_cfg_t init_config1 = {
+    //     .unit_id = ADC_UNIT_1,
+    //     .ulp_mode = ADC_ULP_MODE_DISABLE,
+    // };
+    // ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
 
-    // --- 2. Initialisation de l'Unité ADC 2 (Pour GPIO 5) ---
-    adc_oneshot_unit_handle_t adc2_handle;
-    adc_oneshot_unit_init_cfg_t init_config2 = {
-        .unit_id = ADC_UNIT_2,
-        .ulp_mode = ADC_ULP_MODE_DISABLE,
-    };
-    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config2, &adc2_handle));
+    // // --- 2. Initialisation de l'Unité ADC 2 (Pour GPIO 5) ---
+    // adc_oneshot_unit_handle_t adc2_handle;
+    // adc_oneshot_unit_init_cfg_t init_config2 = {
+    //     .unit_id = ADC_UNIT_2,
+    //     .ulp_mode = ADC_ULP_MODE_DISABLE,
+    // };
+    // ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config2, &adc2_handle));
 
-    // --- 3. Configuration des Canaux (Atténuation) ---
-    // ATTEN_DB_12 permet de lire jusqu'à env. 3.0V - 3.3V (Full Range)
-    // Si on laisse par défaut, ça sature à 1.1V
-    adc_oneshot_chan_cfg_t config = {
-        .bitwidth = ADC_BITWIDTH_DEFAULT,  // Résolution 12 bits (0-4095)
-        .atten = ADC_ATTEN_DB_11,
-    };
+    // // --- 3. Configuration des Canaux (Atténuation) ---
+    // // ATTEN_DB_12 permet de lire jusqu'à env. 3.0V - 3.3V (Full Range)
+    // // Si on laisse par défaut, ça sature à 1.1V
+    // adc_oneshot_chan_cfg_t config = {
+    //     .bitwidth = ADC_BITWIDTH_DEFAULT,  // Résolution 12 bits (0-4095)
+    //     .atten = ADC_ATTEN_DB_11,
+    // };
 
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC1_CHAN0, &config));
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc2_handle, ADC2_CHAN0, &config));
+    // ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC1_CHAN0, &config));
+    // ESP_ERROR_CHECK(adc_oneshot_config_channel(adc2_handle, ADC2_CHAN0, &config));
 
-    ESP_LOGI(TAG, "ADC Initialisés. Lecture en boucle...");
+    // ESP_LOGI(TAG, "ADC Initialisés. Lecture en boucle...");
 
-    // Variables pour stocker les résultats
-    int adc_raw_b = 0;  // FSR_B (GPIO 0)
-    int adc_raw_a = 0;  // FSR_A (GPIO 5)
+    // // Variables pour stocker les résultats
+    // int adc_raw_b = 0;  // FSR_B (GPIO 0)
+    // int adc_raw_a = 0;  // FSR_A (GPIO 5)
 
-    while (1) {
-        // Lecture ADC1 (GPIO 0)
-        ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC1_CHAN0, &adc_raw_b));
+    // while (1) {
+    //     // Lecture ADC1 (GPIO 0)
+    //     ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC1_CHAN0, &adc_raw_b));
 
-        // Lecture ADC2 (GPIO 5)
-        ESP_ERROR_CHECK(adc_oneshot_read(adc2_handle, ADC2_CHAN0, &adc_raw_a));
+    //     // Lecture ADC2 (GPIO 5)
+    //     ESP_ERROR_CHECK(adc_oneshot_read(adc2_handle, ADC2_CHAN0, &adc_raw_a));
 
-        // Affichage dans le terminal
-        // 0 = 0V, ~4095 = 3.3V
-        ESP_LOGI(TAG, "FSR_B (GPIO 0): %d  |  FSR_A (GPIO 5): %d", adc_raw_b, adc_raw_a);
+    //     // Affichage dans le terminal
+    //     // 0 = 0V, ~4095 = 3.3V
+    //     ESP_LOGI(TAG, "FSR_B (GPIO 0): %d  |  FSR_A (GPIO 5): %d", adc_raw_b, adc_raw_a);
 
-        vTaskDelay(pdMS_TO_TICKS(500));  // Pause de 500ms
-    }
+    //     vTaskDelay(pdMS_TO_TICKS(500));  // Pause de 500ms
+    // }
 
-    // (Optionnel) Nettoyage si on sortait de la boucle
-    adc_oneshot_del_unit(adc1_handle);
-    adc_oneshot_del_unit(adc2_handle);
+    // // (Optionnel) Nettoyage si on sortait de la boucle
+    // adc_oneshot_del_unit(adc1_handle);
+    // adc_oneshot_del_unit(adc2_handle);
 
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    ESP_LOGI(TAG, "...");
+    // vTaskDelay(pdMS_TO_TICKS(1000));
+    // ESP_LOGI(TAG, "...");
 
-    vTaskDelay(pdMS_TO_TICKS(4000));
-    ESP_LOGI(TAG, "Initialisation SD Card");
+    // vTaskDelay(pdMS_TO_TICKS(4000));
+    // ESP_LOGI(TAG, "Initialisation SD Card");
 
-    esp_err_t ret;
+    // esp_err_t ret;
 
-    // 1. Configuration du montage (Mount Config)
-    esp_vfs_fat_sdmmc_mount_config_t mount_config = { .format_if_mount_failed = true,  // Formater si le montage échoue (carte neuve ou corrompue)
-                                                      .max_files = 5,
-                                                      .allocation_unit_size = 16 * 1024 };
+    // // 1. Configuration du montage (Mount Config)
+    // esp_vfs_fat_sdmmc_mount_config_t mount_config = { .format_if_mount_failed = true,  // Formater si le montage échoue (carte neuve ou corrompue)
+    //                                                   .max_files = 5,
+    //                                                   .allocation_unit_size = 16 * 1024 };
 
-    sdmmc_card_t* card;
-    const char mount_point[] = SD_MOUNT_POINT;
-    ESP_LOGI(TAG, "Initialisation de la carte SD via SPI...");
+    // sdmmc_card_t* card;
+    // const char mount_point[] = SD_MOUNT_POINT;
+    // ESP_LOGI(TAG, "Initialisation de la carte SD via SPI...");
 
-    // 2. Configuration du Bus SPI
-    // Note: On utilise SDSPI_HOST_DEFAULT() qui pointe généralement vers SPI2
-    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+    // // 2. Configuration du Bus SPI
+    // // Note: On utilise SDSPI_HOST_DEFAULT() qui pointe généralement vers SPI2
+    // sdmmc_host_t host = SDSPI_HOST_DEFAULT();
 
-    spi_bus_config_t bus_cfg = {
-        .mosi_io_num = SD_DI,
-        .miso_io_num = SD_DO,
-        .sclk_io_num = SD_CLK,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = 4000,
-    };
+    // spi_bus_config_t bus_cfg = {
+    //     .mosi_io_num = SD_DI,
+    //     .miso_io_num = SD_DO,
+    //     .sclk_io_num = SD_CLK,
+    //     .quadwp_io_num = -1,
+    //     .quadhd_io_num = -1,
+    //     .max_transfer_sz = 4000,
+    // };
 
-    // Initialisation du bus SPI
-    ret = spi_bus_initialize(host.slot, &bus_cfg, SDSPI_DEFAULT_DMA);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Échec de l'initialisation du bus SPI.");
-        return;
-    }
+    // // Initialisation du bus SPI
+    // ret = spi_bus_initialize(host.slot, &bus_cfg, SDSPI_DEFAULT_DMA);
+    // if (ret != ESP_OK) {
+    //     ESP_LOGE(TAG, "Échec de l'initialisation du bus SPI.");
+    //     return;
+    // }
 
-    // 3. Configuration du slot (CS Pin)
-    sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
-    slot_config.gpio_cs = SD_CS;
-    slot_config.host_id = host.slot;
+    // // 3. Configuration du slot (CS Pin)
+    // sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
+    // slot_config.gpio_cs = SD_CS;
+    // slot_config.host_id = host.slot;
 
-    // 4. Montage du système de fichiers
-    ret = esp_vfs_fat_sdspi_mount(mount_point, &host, &slot_config, &mount_config, &card);
+    // // 4. Montage du système de fichiers
+    // ret = esp_vfs_fat_sdspi_mount(mount_point, &host, &slot_config, &mount_config, &card);
 
-    if (ret != ESP_OK) {
-        if (ret == ESP_FAIL) {
-            ESP_LOGE(TAG, "Échec du montage du système de fichiers.");
-        } else {
-            ESP_LOGE(TAG, "Échec de l'initialisation de la carte (%s).", esp_err_to_name(ret));
-        }
-        return;  // On arrête si pas de SD
-    }
+    // if (ret != ESP_OK) {
+    //     if (ret == ESP_FAIL) {
+    //         ESP_LOGE(TAG, "Échec du montage du système de fichiers.");
+    //     } else {
+    //         ESP_LOGE(TAG, "Échec de l'initialisation de la carte (%s).", esp_err_to_name(ret));
+    //     }
+    //     return;  // On arrête si pas de SD
+    // }
 
-    ESP_LOGI(TAG, "Carte SD montée avec succès sur %s", mount_point);
-    sdmmc_card_print_info(stdout, card);
+    // ESP_LOGI(TAG, "Carte SD montée avec succès sur %s", mount_point);
+    // sdmmc_card_print_info(stdout, card);
 
-    // --- BOUCLE PRINCIPALE ---
-    int counter = 0;
-    const char* file_path = SD_MOUNT_POINT "/log.txt";
+    // // --- BOUCLE PRINCIPALE ---
+    // int counter = 0;
+    // const char* file_path = SD_MOUNT_POINT "/log.txt";
 
-    while (1) {
-        ESP_LOGI(TAG, "Écriture du compteur: %d", counter);
+    // while (1) {
+    //     ESP_LOGI(TAG, "Écriture du compteur: %d", counter);
 
-        // Ouverture du fichier en mode "append" ('a')
-        // Si le fichier n'existe pas, il est créé.
-        // Si il existe, on écrit à la fin.
-        FILE* f = fopen(file_path, "a");
+    //     // Ouverture du fichier en mode "append" ('a')
+    //     // Si le fichier n'existe pas, il est créé.
+    //     // Si il existe, on écrit à la fin.
+    //     FILE* f = fopen(file_path, "a");
 
-        if (f == NULL) {
-            ESP_LOGE(TAG, "Impossible d'ouvrir le fichier pour écriture");
-        } else {
-            // Écriture de la ligne
-            fprintf(f, "Counter value: %d\n", counter);
+    //     if (f == NULL) {
+    //         ESP_LOGE(TAG, "Impossible d'ouvrir le fichier pour écriture");
+    //     } else {
+    //         // Écriture de la ligne
+    //         fprintf(f, "Counter value: %d\n", counter);
 
-            // Il est CRUCIAL de fermer le fichier pour sauvegarder physiquement les données
-            fclose(f);
-        }
+    //         // Il est CRUCIAL de fermer le fichier pour sauvegarder physiquement les données
+    //         fclose(f);
+    //     }
 
-        counter++;
-        vTaskDelay(pdMS_TO_TICKS(1000));  // Pause de 1 seconde
-    }
+    //     counter++;
+    //     vTaskDelay(pdMS_TO_TICKS(1000));  // Pause de 1 seconde
+    // }
 }
