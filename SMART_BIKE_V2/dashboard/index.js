@@ -1,27 +1,23 @@
 // Smart Bike Dashboard JS
-let wSocket = null;
-let reconnectInterval = 2000; // ms
-let reconnectTimeout = null;
 
 // State
-let simState = false;
 let t0 = null;
 let sampleCount = 0;
-let simTimer = null;
 let liveMode = true;
 let currentRun = null; // { name, rows, fields }
-let pollingTimer = null;  // For HTTP polling when no WebSocket
+let pollingTimer = null;  // For HTTP polling
 const LIVE_WINDOW_SECONDS = 60;  // 60-second rolling window for live data
 let isPlottingCSV = false;  // Track if we're plotting CSV data vs live data
 
 // UI refs
 const themeToggler = document.querySelector(".theme-toggler");
-const wsEl = document.getElementById("wsMessage");
 const latestPressureEl = document.getElementById("latest_pressure");
 const sampleCountEl = document.getElementById("sample_count");
 const durationEl = document.getElementById("duration");
 const chartDivRight = document.getElementById("pressure_chart_right");
 const chartDivLeft = document.getElementById("pressure_chart_left");
+const liveDataToggle = document.getElementById("live_data_toggle");
+const runSelectorContainer = document.getElementById("run_selector_container");
 const corrDiv = document.getElementById("corr_matrix");
 const liveModeChk = document.getElementById('live_mode');
 const btnRefreshRuns = document.getElementById('btn_refresh_runs');
@@ -62,20 +58,9 @@ const upperThInp = document.getElementById('upper_threshold');
 const zonesToggle = document.getElementById('zones_toggle');
 // Sidebar navigation & import
 const navLinks = document.querySelectorAll('.nav-link');
-const btnImportRun = document.getElementById('btn_import_run');
-const fileImport = document.getElementById('file_import');
-// Filters modal
-const filtersBtn = document.getElementById('btn_filters');
-const filtersModal = document.getElementById('filters_modal');
-const filtersClose = document.getElementById('filters_close');
-const filtersApply = document.getElementById('filters_apply');
-// Local model load UI
-const btnLoadModel = document.getElementById('btn_load_model');
-const fileLoadModel = document.getElementById('file_load_model');
-const btnFitView = document.getElementById('btn_fit_view');
-const modelSelect = document.getElementById('model_select');
-const btnLoadHandlebar = document.getElementById('btn_load_handlebar');
-const fileLoadHandlebar = document.getElementById('file_load_handlebar');
+// Run selector
+const runSelector = document.getElementById('run_selector');
+const activeProfileNameEl = document.getElementById('active_profile_name');
 
 // Profile / Settings UI
 const btnProfile = document.getElementById('btn_profile');
@@ -143,8 +128,16 @@ async function refreshProfilesUI() {
       }
     }
     
+    // Update header active profile display
+    if (activeProfileNameEl) {
+      activeProfileNameEl.textContent = active || 'None';
+    }
+    
     // Populate lists
     await refreshRunsLists();
+    
+    // Refresh the header run selector
+    await loadActiveProfileAndRuns();
   } catch (e) {
     console.error('Failed loading runners:', e);
   }
@@ -169,6 +162,81 @@ async function refreshRunsLists() {
     }
   } catch (e) {
     console.error('Failed loading runs lists:', e);
+  }
+}
+
+// Load active profile and populate the run selector in the header
+function highlightSelectedRun(selectedValue) {
+  if (!runSelector) return;
+  
+  // Remove previous highlighting
+  Array.from(runSelector.options).forEach(opt => {
+    opt.style.background = '';
+    opt.style.fontWeight = '';
+    opt.style.color = '';
+  });
+  
+  // Highlight the selected run
+  if (selectedValue) {
+    const selectedOption = Array.from(runSelector.options).find(opt => opt.value === selectedValue);
+    if (selectedOption) {
+      selectedOption.style.background = 'var(--color-primary)';
+      selectedOption.style.fontWeight = 'bold';
+      selectedOption.style.color = 'var(--color-white)';
+    }
+  }
+}
+
+async function loadActiveProfileAndRuns() {
+  try {
+    // Get active runner
+    const runnersInfo = await apiGetJSON('/api/runners');
+    const activeRunner = runnersInfo.active || '';
+    
+    // Update active profile display
+    if (activeProfileNameEl) {
+      activeProfileNameEl.textContent = activeRunner || 'None';
+    }
+    
+    // Populate run selector with runs from active profile and unsorted
+    if (runSelector) {
+      runSelector.innerHTML = '<option value="">-- No run selected --</option>';
+      
+      // Add runs from active profile first
+      if (activeRunner) {
+        const profRuns = await apiGetJSON(`/api/runs-in?runner=${encodeURIComponent(activeRunner)}`);
+        if (profRuns.length > 0) {
+          const profileGroup = document.createElement('optgroup');
+          profileGroup.label = `Profile: ${activeRunner}`;
+          for (const f of profRuns) {
+            const opt = document.createElement('option');
+            opt.value = `${activeRunner}/${f}`;
+            opt.textContent = f;
+            profileGroup.appendChild(opt);
+          }
+          runSelector.appendChild(profileGroup);
+        }
+      }
+      
+      // Add unsorted runs after profile runs
+      const unsorted = await apiGetJSON(`/api/runs-in?runner=${encodeURIComponent(RESERVED_UNSORTED)}`);
+      if (unsorted.length > 0) {
+        const unsortedGroup = document.createElement('optgroup');
+        unsortedGroup.label = 'Unsorted';
+        for (const f of unsorted) {
+          const opt = document.createElement('option');
+          opt.value = f;
+          opt.textContent = f;
+          unsortedGroup.appendChild(opt);
+        }
+        runSelector.appendChild(unsortedGroup);
+      }
+    }
+  } catch (e) {
+    console.error('Failed loading active profile and runs:', e);
+    if (activeProfileNameEl) {
+      activeProfileNameEl.textContent = 'Error';
+    }
   }
 }
 
@@ -463,17 +531,14 @@ let sumPressure = 0;
 let maxPressure = -Infinity;
 
 function connect() {
-  // For ESP32, use HTTP polling instead of WebSocket
-  // WebSocket can be added later if needed
+  // For ESP32, use HTTP polling
   if (location.protocol === 'file:') {
-    logToConsole('Running from file:// — Using Simulation mode.');
-    updateWelcomeMsg('Local file mode - Using Simulation', 'darkGray');
+    logToConsole('Running from file:// — Using local file mode.');
     return;
   }
   
   // Start HTTP polling for live data from ESP32
   startHttpPolling();
-  updateWelcomeMsg('Connected (HTTP polling)', 'darkGreen');
 }
 
 // Fetch live ADC data from ESP32 via HTTP
@@ -501,7 +566,6 @@ async function startHttpPolling() {
           // No run active - show message once
           if (!noDataWarningShown) {
             logToConsole('Waiting for run... Press button on ESP32 to start data collection.');
-            updateWelcomeMsg('Connected - No active run', 'orange');
             noDataWarningShown = true;
           }
         }
@@ -544,8 +608,21 @@ function handleSensorData(voltages, timestamp) {
   if (sampleCountEl) sampleCountEl.textContent = `${sampleCount}`;
   if (durationEl) durationEl.textContent = `${seconds.toFixed(1)}s`;
   
-  // Update sensor pressures for handlebar visualization
-  sensorPressures = voltages.map(v => (v / 3.3) * 100); // Convert voltage to pressure percentage
+  // Update sensor pressures for handlebar visualization (keep as voltages)
+  sensorPressures = voltages.slice(); // Keep as voltage values (0-3.3V)
+  
+  // Store in history for averaging
+  for (let i = 0; i < 8; i++) {
+    sensorPressureHistory[i].push({ time: seconds, pressure: sensorPressures[i] });
+    // Keep only recent history (e.g., last 1000 samples or 60 seconds)
+    if (sensorPressureHistory[i].length > 1000) {
+      sensorPressureHistory[i].shift();
+    }
+    // Calculate average
+    const sum = sensorPressureHistory[i].reduce((acc, item) => acc + item.pressure, 0);
+    sensorPressureAverages[i] = sum / sensorPressureHistory[i].length;
+  }
+  
   updateHandlebarHeatmap();
   
   // Prepare data for right handle (sensors 1-4) - one point per trace
@@ -619,41 +696,12 @@ function handlePressure(value, t) {
   if (maxPressureEl && isFinite(maxPressure)) maxPressureEl.textContent = `${maxPressure.toFixed(2)} N`;
 }
 
-function updateWelcomeMsg(msg, color) {
-  if (wsEl) {
-    wsEl.style.color = color;
-    wsEl.textContent = msg;
-  }
-}
-
 function logToConsole(msg) {
   try { console.log(msg); } catch (_) {}
 }
 
 // Buttons
-const simBtn = document.getElementById('toggleSim');
 const clearChartBtn = document.getElementById('btn_clear_chart');
-
-function sendToggle(label, value) {
-  if (wSocket && wSocket.readyState === WebSocket.OPEN) {
-    const message = `${label}=${value}`;
-    wSocket.send(message);
-    logToConsole(`TX: ${message}`);
-  } else {
-    logToConsole('WS not connected.');
-  }
-}
-
-function updateSimButton() {
-  if (simBtn) simBtn.textContent = `Simulation: ${simState ? 'ON' : 'OFF'}`;
-}
-
-if (simBtn) simBtn.addEventListener('click', () => {
-  simState = !simState;
-  updateSimButton();
-  sendToggle('SIM_ENABLE', simState);
-  if (simState) startSim(); else stopSim();
-});
 
 if (clearChartBtn) clearChartBtn.addEventListener('click', () => {
   // Clear right handle chart
@@ -764,71 +812,73 @@ window.addEventListener('load', () => {
     applyLayout(mode);
     setActiveNav(mode);
   }));
-  // Import run from SD card
-  if (btnImportRun) {
-    btnImportRun.addEventListener('click', async () => {
-      try {
-        const resp = await fetch('/api/runs');
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const runs = await resp.json();
+  // Live data toggle - show/hide run selector
+  if (liveDataToggle) {
+    liveDataToggle.addEventListener('change', (e) => {
+      const isLiveMode = e.target.checked;
+      if (runSelectorContainer) {
+        runSelectorContainer.style.display = isLiveMode ? 'none' : 'block';
+      }
+      if (isLiveMode) {
+        // Switch to live mode
+        liveMode = true;
+        isPlottingCSV = false;
         
-        if (!Array.isArray(runs) || runs.length === 0) {
-          alert('No SD card mounted or no run files found on SD card.');
-          return;
-        }
+        // Clear all graphs
+        Plotly.react(chartDivRight, [
+          { x: [], y: [], mode: 'lines', line: { color: colors[0], width: 2 }, name: 'Sensor 1' },
+          { x: [], y: [], mode: 'lines', line: { color: colors[1], width: 2 }, name: 'Sensor 2' },
+          { x: [], y: [], mode: 'lines', line: { color: colors[2], width: 2 }, name: 'Sensor 3' },
+          { x: [], y: [], mode: 'lines', line: { color: colors[3], width: 2 }, name: 'Sensor 4' }
+        ], chartLayout, chartConfig);
         
-        // Show file selection dialog
-        const selected = await showRunSelectionDialog(runs);
-        if (selected) {
-          await loadAndPlotCSV(selected);
+        Plotly.react(chartDivLeft, [
+          { x: [], y: [], mode: 'lines', line: { color: colors[0], width: 2 }, name: 'Sensor 5' },
+          { x: [], y: [], mode: 'lines', line: { color: colors[1], width: 2 }, name: 'Sensor 6' },
+          { x: [], y: [], mode: 'lines', line: { color: colors[2], width: 2 }, name: 'Sensor 7' },
+          { x: [], y: [], mode: 'lines', line: { color: colors[3], width: 2 }, name: 'Sensor 8' }
+        ], chartLayout, chartConfig);
+        
+        // Reset sensor pressures and history
+        sensorPressures = [0, 0, 0, 0, 0, 0, 0, 0];
+        sensorPressureHistory = [[], [], [], [], [], [], [], []];
+        sensorPressureAverages = [0, 0, 0, 0, 0, 0, 0, 0];
+        hoverTime = null;
+        updateHandlebarHeatmap();
+        
+        // Clear CSV highlighting
+        highlightSelectedRun('');
+        
+        // Reset stats
+        t0 = null; 
+        sampleCount = 0;
+        if (latestPressureEl) latestPressureEl.textContent = '0 N';
+        if (sampleCountEl) sampleCountEl.textContent = '0';
+        if (durationEl) durationEl.textContent = '0s';
+      } else {
+        // Switch to historical mode - reset dropdown to no selection
+        liveMode = false;
+        if (runSelector) {
+          runSelector.value = '';
+          highlightSelectedRun('');
         }
-      } catch (e) {
-        alert('Error accessing SD card: ' + e.message);
-        logToConsole(`Import error: ${e}`);
       }
     });
   }
   
-  // Keep local file import for backward compatibility
-  if (fileImport) {
-    fileImport.addEventListener('change', onImportFileChange);
-  }
-  // Local 3D model loader
-  if (btnLoadModel && fileLoadModel) {
-    btnLoadModel.addEventListener('click', () => fileLoadModel.click());
-    fileLoadModel.addEventListener('change', onLoadModelFileChange);
-  }
-  if (btnLoadHandlebar && fileLoadHandlebar) {
-    btnLoadHandlebar.addEventListener('click', () => fileLoadHandlebar.click());
-    fileLoadHandlebar.addEventListener('change', onLoadHandlebarFileChange);
-  }
-  if (btnFitView) {
-    btnFitView.addEventListener('click', () => {
-      const target = bikePivot || bikeModel;
-      if (target) frameObject(target); else logToConsole('No model to frame.');
-    });
-  }
-  // Model selector
-  if (modelSelect) {
-    modelSelect.addEventListener('change', (e) => {
-      const selectedModel = e.target.value;
-      if (selectedModel) {
-        tryLoadBikeModel(selectedModel);
+  // Run selector - load run when selected
+  if (runSelector) {
+    runSelector.addEventListener('change', async (e) => {
+      const selected = e.target.value;
+      if (selected) {
+        await loadAndPlotCSV(selected);
+        highlightSelectedRun(selected);
+      } else {
+        highlightSelectedRun('');
       }
     });
   }
-  // Filters modal wiring
-  if (filtersBtn && filtersModal) {
-    filtersBtn.addEventListener('click', () => openFilters());
-  }
-  if (filtersClose) filtersClose.addEventListener('click', () => closeFilters());
-  if (filtersApply) filtersApply.addEventListener('click', () => { if (!liveMode) replotCurrent(); closeFilters(); });
-  // Close modal on overlay click
-  if (filtersModal) filtersModal.addEventListener('click', (e) => {
-    if (e.target === filtersModal) closeFilters();
-  });
-  // ESC to close
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeFilters(); });
+  
   if (btnRenameRun) btnRenameRun.addEventListener('click', renameSelectedRun);
   if (runnerFilterSel) runnerFilterSel.addEventListener('change', filterRunsByRunner);
   applyLayout('live');
@@ -841,111 +891,15 @@ window.addEventListener('load', () => {
   // Initialize 3D viewers
   initThree();
   initHandlebar();
+  
+  // Load active profile and populate run selector
+  loadActiveProfileAndRuns();
 
   // Fallback wiring for Customize modal if ui-layout.js isn't active
   // Customize modal removed
 });
 
 // Customize modal removed
-
-function openFilters() { if (filtersModal) filtersModal.classList.remove('hidden'); }
-function closeFilters() { if (filtersModal) filtersModal.classList.add('hidden'); }
-
-// Simple client-side simulator to generate data when SIM is ON
-function startSim() {
-  if (simTimer) return;
-  if (t0 == null) t0 = performance.now();
-  // Realistic orientation state (degrees)
-  let yaw = 0, pitch = 0, roll = 0; // stay near upright
-  let yawEvent = null, pitchEvent = null, rollEvent = null; // transient turns/leans
-  const dt = 0.2; // seconds per tick
-  const decay = { yaw: 0.8, pitch: 1.0, roll: 1.2 }; // pull back to 0 (per second)
-  const sigma = { yaw: 4, pitch: 3, roll: 4 }; // random jitter (deg/s)
-  const limits = { yaw: 45, pitch: 45, roll: 45 }; // bounds (deg) - max ±45 degrees
-
-  function stepOU(val, k, s) {
-    // Ornstein–Uhlenbeck style drift toward 0 with jitter
-    const drift = -k * val * dt;
-    const noise = s * dt * (Math.random() * 2 - 1);
-    return val + drift + noise;
-  }
-  function clamp(v, lim) { return Math.max(-lim, Math.min(lim, v)); }
-  function maybeStartEvent() {
-    // Low probability transient: turn or lean for 1–2s (max ±45 degrees)
-    if (!yawEvent && Math.random() < 0.05) yawEvent = { target: (Math.random()<0.5?1:-1) * (15 + Math.random()*30), t: 1 + Math.random() * 1.2 };
-    if (!pitchEvent && Math.random() < 0.04) pitchEvent = { target: (Math.random()<0.5?1:-1) * (10 + Math.random()*25), t: 0.8 + Math.random() * 1.0 };
-    if (!rollEvent && Math.random() < 0.04) rollEvent = { target: (Math.random()<0.5?1:-1) * (15 + Math.random()*30), t: 0.8 + Math.random() * 1.2 };
-  }
-  function applyEvent(val, evt) {
-    if (!evt) return val;
-    // Move a fraction toward target, and decay time
-    val += (evt.target - val) * 0.5 * dt;
-    evt.t -= dt;
-    if (evt.t <= 0) return val;
-    return val;
-  }
-
-  simTimer = setInterval(() => {
-    const now = performance.now() - t0;
-    // Pressure profile: quasi-periodic effort with noise
-    const base = 40;
-    const sine = 18 * Math.sin(now / 1000 * 1.6);
-    const noise = (Math.random() - 0.5) * 6;
-    const v = Math.max(0, base + sine + noise);
-    handlePressure(v);
-
-    // Orientation: mostly straight, occasional small events
-    maybeStartEvent();
-    yaw = stepOU(yaw, decay.yaw, sigma.yaw); yaw = applyEvent(yaw, yawEvent); yaw = clamp(yaw, limits.yaw);
-    pitch = stepOU(pitch, decay.pitch, sigma.pitch); pitch = applyEvent(pitch, pitchEvent); pitch = clamp(pitch, limits.pitch);
-    roll = stepOU(roll, decay.roll, sigma.roll); roll = applyEvent(roll, rollEvent); roll = clamp(roll, limits.roll);
-    // Clear finished events
-    if (yawEvent && yawEvent.t <= 0) yawEvent = null;
-    if (pitchEvent && pitchEvent.t <= 0) pitchEvent = null;
-    if (rollEvent && rollEvent.t <= 0) rollEvent = null;
-
-    handleOrientation(yaw, pitch, roll);
-    
-    // Simulate handlebar sensor pressures
-    simulateHandlebarPressure();
-  }, 200);
-}
-
-function simulateHandlebarPressure() {
-  // Generate realistic pressure pattern across 8 sensors
-  // Create distinct values for each sensor to clearly show the 4 zones per grip
-  const now = performance.now();
-  
-  // Create a "wave" pattern that cycles through the sensors
-  const phase = (now / 3000) % 1; // 0 to 1, repeating every 3 seconds
-  
-  for (let i = 0; i < 8; i++) {
-    // Create a wave that peaks at different sensors over time
-    const sensorPhase = (i / 8 + phase) % 1;
-    const wave = Math.sin(sensorPhase * Math.PI * 2) * 0.5 + 0.5; // 0 to 1
-    
-    // Base pressure varies by sensor position (top sensors typically get more pressure)
-    const positionFactor = i % 4; // 0-3 for each grip
-    let basePressure = 30 + positionFactor * 15; // 30, 45, 60, 75
-    
-    // Apply wave modulation
-    const pressure = basePressure + wave * 40;
-    
-    // Add small noise for realism
-    const noise = (Math.random() - 0.5) * 5;
-    
-    // Convert to voltage (assuming 0-100N maps to 0-3.3V)
-    sensorPressures[i] = Math.max(0, Math.min(3.3, ((pressure + noise) / 100) * 3.3));
-  }
-  
-  updateHandlebarHeatmap();
-}
-
-function stopSim() {
-  if (!simTimer) return;
-  clearInterval(simTimer);
-  simTimer = null;
-}
 
 // ---------- Run loading and plotting ----------
 
@@ -1290,7 +1244,7 @@ function initThree() {
   floor.receiveShadow = true;
   threeScene.add(floor);
   // Load default bike model
-  tryLoadBikeModel('Santa_cruz.glb');
+  tryLoadBikeModel('MODELS/BIKE/BIKE.GLB');
   // Resize handling
   window.addEventListener('resize', onThreeResize);
   // Mouse wheel zoom
@@ -1323,7 +1277,7 @@ function onThreeResize() {
   threeRenderer.setSize(w, h);
 }
 
-function tryLoadBikeModel(modelFileName = 'Santa_cruz.glb') {
+function tryLoadBikeModel(modelFileName = 'MODELS/BIKE/BIKE.GLB') {
   // When running from file://, show a helpful message but don't block
   // The model will work fine when served from ESP32's HTTP server
   if (location.protocol === 'file:') {
@@ -1340,9 +1294,9 @@ function tryLoadBikeModel(modelFileName = 'Santa_cruz.glb') {
     return; 
   }
   
-  // Load GLB model from models/ folder (filename can be anything.glb)
-  const modelPath = `models/${modelFileName}`;
-  const displayName = modelFileName.replace('.glb', '').replace(/_/g, ' ');
+  // Load GLB model from SD card (full path should be provided)
+  const modelPath = modelFileName;
+  const displayName = modelFileName.split('/').pop().replace('.glb', '').replace(/_/g, ' ');
   ensureThreeOverlay(`Loading ${displayName} model...`);
   logToConsole(`Loading 3D model: ${modelPath}`);
   
@@ -1395,7 +1349,23 @@ function tryLoadBikeModel(modelFileName = 'Santa_cruz.glb') {
       
       threeScene.add(pivot);
       bikePivot = pivot;
-      frameObject(pivot);
+      
+      // Position camera to view the bike from the side
+      if (threeCamera) {
+        const box = new THREE.Box3().setFromObject(pivot);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const fov = threeCamera.fov * (Math.PI / 180);
+        const fitDist = (maxDim / 2) / Math.tan(fov / 2);
+        // Place camera to the side of the bike (-90° angle on X axis) to view it from the left side
+        // Position on negative X axis, slightly above center, closer to model
+        threeCamera.position.set(center.x - fitDist * 0.7, center.y + maxDim * 0.1, center.z);
+        threeCamera.near = Math.max(0.01, fitDist / 100);
+        threeCamera.far = fitDist * 100;
+        threeCamera.updateProjectionMatrix();
+        threeCamera.lookAt(center);
+      }
       
       logToConsole(`3D model loaded: ${displayName}`);
       ensureThreeOverlay(`${displayName} loaded successfully`);
@@ -1432,96 +1402,6 @@ function ensureThreeOverlay(text) {
   const prevPos = getComputedStyle(threeContainer).position;
   if (prevPos === 'static') threeContainer.style.position = 'relative';
   threeContainer.appendChild(msg);
-}
-
-function onLoadModelFileChange(evt) {
-  const file = evt.target.files && evt.target.files[0];
-  if (!file) return;
-  
-  const isGLTF = file.name.toLowerCase().endsWith('.gltf');
-  const isGLB = file.name.toLowerCase().endsWith('.glb');
-  
-  if (!isGLTF && !isGLB) {
-    logToConsole('Only GLTF/GLB files are supported');
-    ensureThreeOverlay('Only GLTF/GLB files are supported');
-    return;
-  }
-  
-  ensureThreeOverlay(`Loading ${file.name}...`);
-  
-  const reader = new FileReader();
-  reader.onload = () => {
-    const arrayBuffer = reader.result;
-    const loader = (window.THREE && THREE.GLTFLoader) ? new THREE.GLTFLoader() : (window.GLTFLoader ? new GLTFLoader() : null);
-    if (!loader) { 
-      logToConsole('GLTFLoader not found.'); 
-      ensureThreeOverlay('GLTFLoader not available');
-      return; 
-    }
-    
-    // Clear previous model/pivot
-    if (bikePivot && threeScene) { 
-      threeScene.remove(bikePivot); 
-      bikePivot = null; 
-      bikeModel = null;
-    }
-    
-    try {
-      loader.parse(arrayBuffer, '', (gltf) => {
-        bikeModel = gltf.scene || (gltf.scenes && gltf.scenes[0]);
-        if (!bikeModel) { 
-          logToConsole('Model has no scene'); 
-          ensureThreeOverlay('Error: Model has no scene data');
-          return; 
-        }
-        
-        // Enable shadows and ensure materials work with textures
-        bikeModel.traverse(obj => { 
-          if (obj.isMesh) { 
-            obj.castShadow = true; 
-            obj.receiveShadow = true;
-            if (obj.material) {
-              obj.material.needsUpdate = true;
-            }
-          } 
-        });
-        
-        const box = new THREE.Box3().setFromObject(bikeModel);
-        const center = box.getCenter(new THREE.Vector3());
-        const pivot = new THREE.Group();
-        bikeModel.position.sub(center);
-        pivot.add(bikeModel);
-        
-        // Auto-scale
-        const size = box.getSize(new THREE.Vector3());
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const scale = 2.0 / maxDim;
-        pivot.scale.setScalar(scale);
-        pivot.position.set(0, 0.5, 0);
-        
-        threeScene.add(pivot);
-        bikePivot = pivot;
-        frameObject(pivot);
-        
-        logToConsole(`Loaded local model: ${file.name}`);
-        ensureThreeOverlay(`${file.name} loaded`);
-        setTimeout(() => ensureThreeOverlay(''), 2000);
-      }, (err) => {
-        logToConsole(`Failed to parse model: ${err && err.message ? err.message : err}`);
-        ensureThreeOverlay('Failed to parse model file');
-      });
-    } catch (e) {
-      logToConsole(`Model parse error: ${e}`);
-      ensureThreeOverlay('Error parsing model');
-    } finally {
-      fileLoadModel.value = '';
-    }
-  };
-  reader.onerror = () => {
-    logToConsole('Failed to read model file.');
-    ensureThreeOverlay('Failed to read file');
-  };
-  reader.readAsArrayBuffer(file);
 }
 
 function onLoadHandlebarFileChange(evt) {
@@ -1619,27 +1499,14 @@ function applyModelOrientation() {
   );
 }
 
-function frameObject(object3D) {
-  if (!threeCamera) return;
-  const box = new THREE.Box3().setFromObject(object3D);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  const maxDim = Math.max(size.x, size.y, size.z);
-  const fov = threeCamera.fov * (Math.PI / 180);
-  const fitDist = (maxDim/2) / Math.tan(fov/2);
-  // Place camera to the side of the bike (-90° angle on X axis) to view it from the left side
-  // Position on negative X axis, slightly above center, closer to model
-  threeCamera.position.set(center.x - fitDist * 0.7, center.y + maxDim*0.1, center.z);
-  threeCamera.near = Math.max(0.01, fitDist/100);
-  threeCamera.far = fitDist * 100;
-  threeCamera.updateProjectionMatrix();
-  threeCamera.lookAt(center);
-}
-
 // ---------- Handlebar 3D with Heatmap ----------
 let handlebarScene, handlebarCamera, handlebarRenderer, handlebarFrame;
 let handlebarModel;
-let sensorPressures = [0, 0, 0, 0, 0, 0, 0, 0]; // 8 sensors
+let sensorPressures = [0, 0, 0, 0, 0, 0, 0, 0]; // 8 sensors - current values
+let sensorPressureHistory = [[], [], [], [], [], [], [], []]; // Store history for averaging
+let sensorPressureAverages = [0, 0, 0, 0, 0, 0, 0, 0]; // Averaged values for heatmap
+let useAveragePressure = true; // Toggle between current and average
+let hoverTime = null; // Time value when hovering over graph
 let handlebarRotation = { x: 0, y: 0 };
 let handlebarZoom = 2;
 let handlebarCenter = new THREE.Vector3(0, 0, 0);
@@ -1660,7 +1527,7 @@ function initHandlebar() {
   const w = Math.max(1, container.clientWidth);
   const h = Math.max(1, container.clientHeight);
   handlebarCamera = new THREE.PerspectiveCamera(50, w / h, 0.01, 1000);
-  handlebarCamera.position.set(0, 0.5, 1.2);
+  handlebarCamera.position.set(0, 0.5, 0.4);
   handlebarCamera.lookAt(0, 0, 0);
   
   // Renderer
@@ -1676,7 +1543,7 @@ function initHandlebar() {
   handlebarScene.add(dir);
   
   // Load handlebar GLB model
-  loadHandlebarModel('HandleBar.glb');
+  loadHandlebarModel('MODELS/HBAR/HBAR.GLB');
   
   // Mouse controls for rotation and zoom
   container.addEventListener('mousedown', (e) => {
@@ -1712,9 +1579,12 @@ function initHandlebar() {
   container.addEventListener('wheel', (e) => {
     e.preventDefault();
     // Use percentage-based zoom for better scaling across different model sizes
-    const zoomFactor = e.deltaY > 0 ? 1.02 : 0.98;
+    const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
     handlebarZoom *= zoomFactor;
-    handlebarZoom = Math.max(0.5, Math.min(50, handlebarZoom));
+    // Use dynamic limits if available, otherwise fallback to reasonable defaults
+    const minZoom = handlebarZoom.min || 0.5;
+    const maxZoom = handlebarZoom.max || 50;
+    handlebarZoom = Math.max(minZoom, Math.min(maxZoom, handlebarZoom));
     updateHandlebarCamera();
   }, { passive: false });
   
@@ -1773,7 +1643,7 @@ function loadHandlebarModel(modelFileName) {
     return;
   }
   
-  const modelPath = `models/${modelFileName}`;
+  const modelPath = modelFileName;
   loader.load(modelPath, (gltf) => {
     if (handlebarModel) handlebarScene.remove(handlebarModel);
     handlebarModel = gltf.scene;
@@ -1818,13 +1688,29 @@ function frameHandlebar(object3D) {
   const size = box.getSize(new THREE.Vector3());
   handlebarCenter = box.getCenter(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z);
+  
+  // Scale the model to a reasonable size (target max dimension of ~2 units)
+  const targetSize = 2.0;
+  if (maxDim > 0.01) {
+    const scale = targetSize / maxDim;
+    object3D.scale.set(scale, scale, scale);
+    // Recalculate box after scaling
+    box.setFromObject(object3D);
+    box.getSize(size);
+    box.getCenter(handlebarCenter);
+  }
+  
   const fov = handlebarCamera.fov * (Math.PI / 180);
-  const fitDist = (maxDim / 2) / Math.tan(fov / 2);
+  const fitDist = (Math.max(size.x, size.y, size.z) / 2) / Math.tan(fov / 2);
   
   // Set initial zoom and rotation based on model size
-  handlebarZoom = fitDist * 0.4;
+  handlebarZoom = fitDist * 1.5; // Start a bit further back
   handlebarRotation.x = 0.5; // Slight tilt down
   handlebarRotation.y = 3.1415; // Front view
+  
+  // Store zoom limits for this model
+  handlebarZoom.min = fitDist * 0.3;
+  handlebarZoom.max = fitDist * 5;
   
   handlebarCamera.near = Math.max(0.01, fitDist / 100);
   handlebarCamera.far = fitDist * 100;
@@ -1834,10 +1720,67 @@ function frameHandlebar(object3D) {
 }
 
 function updateHandlebarHeatmap() {
-  if (!handlebarModel) return;
+  console.log('>>> updateHandlebarHeatmap() called');
   
-  // Get max pressure for normalization
-  const maxPressure = Math.max(...sensorPressures, 1);
+  if (!handlebarModel) {
+    console.log('>>> Handlebar model not loaded yet');
+    return;
+  }
+  
+  console.log('>>> Handlebar model exists, proceeding...');
+  console.log('>>> hoverTime:', hoverTime);
+  console.log('>>> useAveragePressure:', useAveragePressure);
+  console.log('>>> sensorPressures:', sensorPressures);
+  console.log('>>> sensorPressureAverages:', sensorPressureAverages);
+  
+  // Determine which pressure values to use
+  let pressuresToUse;
+  
+  if (hoverTime !== null) {
+    // Use pressures at the hovered time
+    pressuresToUse = [];
+    for (let i = 0; i < 8; i++) {
+      // Find the closest sample to the hover time
+      const history = sensorPressureHistory[i];
+      if (history.length === 0) {
+        pressuresToUse[i] = 0;
+        continue;
+      }
+      
+      // Binary search or simple find closest
+      let closest = history[0];
+      let minDiff = Math.abs(history[0].time - hoverTime);
+      for (let j = 1; j < history.length; j++) {
+        const diff = Math.abs(history[j].time - hoverTime);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closest = history[j];
+        }
+      }
+      pressuresToUse[i] = closest.pressure;
+    }
+  } else if (useAveragePressure) {
+    // Use averaged values
+    pressuresToUse = sensorPressureAverages;
+  } else {
+    // Use current/latest values
+    pressuresToUse = sensorPressures;
+  }
+  
+  // Use fixed voltage range for consistent color mapping
+  const maxPressure = 3.3;  // Max voltage
+  const minPressure = 0.0;  // Min voltage
+  
+  // Debug: Log the pressure values being used
+  console.log('=== Heatmap Update Debug ===');
+  console.log('Pressures to use:', pressuresToUse);
+  console.log('Min pressure:', minPressure, 'Max pressure:', maxPressure);
+  
+  // Update legend with fixed voltage range
+  const legendMin = document.getElementById('legend_min');
+  const legendMax = document.getElementById('legend_max');
+  if (legendMin) legendMin.textContent = '0.00 [V]';
+  if (legendMax) legendMax.textContent = '3.30 [V]';
   
   // Find the specific grip meshes by name
   let rightGrip = null;
@@ -1875,9 +1818,11 @@ function updateHandlebarHeatmap() {
     const bboxSize = bbox.getSize(new THREE.Vector3());
     const bboxCenter = bbox.getCenter(new THREE.Vector3());
     
-    // Define the 4 zones: each sensor gets 25% of the grip height
-    // Zone boundaries at 0-25%, 25-50%, 50-75%, 75-100%
-    const zoneBoundaries = [0, 0.25, 0.5, 0.75, 1.0];
+    // Each grip has 4 sensors positioned as:
+    // Top half: 2 sensors (left and right)
+    // Bottom half: 2 sensors (left and right)
+    // Add gap between sensors for visual separation
+    const gapRatio = 0.05; // 5% gap between sensors
     
     // Map sensors to positions on the grip
     for (let i = 0; i < position.count; i++) {
@@ -1885,28 +1830,53 @@ function updateHandlebarHeatmap() {
       const y = position.getY(i);
       const z = position.getZ(i);
       
-      // Normalize Y position (0 to 1) for grip height
+      // Normalize positions (0 to 1) - try X axis for horizontal division
       const yNorm = (y - bbox.min.y) / (bbox.max.y - bbox.min.y || 1);
+      const xNorm = (x - bbox.min.x) / (bbox.max.x - bbox.min.x || 1);
       
-      // Determine which of the 4 zones this vertex belongs to
-      let zoneIndex = 0;
-      if (yNorm >= zoneBoundaries[3]) zoneIndex = 0; // Top zone (sensor 1 or 5)
-      else if (yNorm >= zoneBoundaries[2]) zoneIndex = 1; // Upper-middle (sensor 2 or 6)
-      else if (yNorm >= zoneBoundaries[1]) zoneIndex = 2; // Lower-middle (sensor 3 or 7)
-      else zoneIndex = 3; // Bottom zone (sensor 4 or 8)
+      // Check if vertex is in the gap area (center strip between sensors)
+      const inYGap = Math.abs(yNorm - 0.5) < gapRatio;
+      const inXGap = Math.abs(xNorm - 0.5) < gapRatio;
       
-      let pressure = 0;
-      
-      if (isRight) {
-        // Right grip: sensors 1-4 (top to bottom)
-        pressure = sensorPressures[zoneIndex];
-      } else {
-        // Left grip: sensors 5-8 (top to bottom)
-        pressure = sensorPressures[4 + zoneIndex];
+      // If in gap, use neutral color
+      if (inYGap || inXGap) {
+        colors[i * 3] = 0.2;     // Dark gray for gaps
+        colors[i * 3 + 1] = 0.2;
+        colors[i * 3 + 2] = 0.2;
+        continue;
       }
       
-      // Normalize pressure (0-1)
-      const normalized = Math.min(pressure / maxPressure, 1);
+      // Determine which of the 4 quadrants this vertex belongs to
+      // Y axis: vertical (top/bottom)
+      // X axis: horizontal (left/right or front/back)
+      const isTop = yNorm >= 0.5;
+      const isRight_XAxis = xNorm >= 0.5;
+      
+      let sensorIndex = 0;
+      
+      if (isRight) {
+        // Right grip: sensors 1-4
+        if (isTop && isRight_XAxis) sensorIndex = 0;        // Sensor 1
+        else if (isTop && !isRight_XAxis) sensorIndex = 1;  // Sensor 2
+        else if (!isTop && isRight_XAxis) sensorIndex = 2;  // Sensor 3
+        else sensorIndex = 3;                                // Sensor 4
+      } else {
+        // Left grip: sensors 5-8
+        if (isTop && isRight_XAxis) sensorIndex = 4;        // Sensor 5
+        else if (isTop && !isRight_XAxis) sensorIndex = 5;  // Sensor 6
+        else if (!isTop && isRight_XAxis) sensorIndex = 6;  // Sensor 7
+        else sensorIndex = 7;                                // Sensor 8
+      }
+      
+      const pressure = pressuresToUse[sensorIndex];
+      
+      // Normalize pressure (0-1) using min and max range
+      const normalized = Math.min(Math.max((pressure - minPressure) / (maxPressure - minPressure), 0), 1);
+      
+      // Debug: Log for first vertex of each sensor (to avoid spam)
+      if (i % 100 === 0) {
+        console.log(`Sensor ${sensorIndex + 1}: pressure=${pressure.toFixed(3)}V, normalized=${normalized.toFixed(3)}`);
+      }
       
       // Color gradient: blue (low) -> green -> yellow -> red (high)
       let r, g, b;
@@ -1964,8 +1934,6 @@ function updateHandlebarHeatmap() {
 // ---------- i18n ----------
 const I18N = {
   en: {
-    websocket_label: 'WebSocket:',
-    wsDisconnected: 'Disconnected',
     live_mode: 'Live Mode',
     refresh_runs: 'Refresh Runs',
     select_run_placeholder: 'Select a run…',
@@ -2043,8 +2011,6 @@ const I18N = {
     download_all: 'Download All CSV',
   },
   fr: {
-    websocket_label: 'WebSocket :',
-    wsDisconnected: 'Déconnecté',
     live_mode: 'Mode Live',
     refresh_runs: 'Rafraîchir',
     select_run_placeholder: 'Choisir une session…',
@@ -2121,8 +2087,6 @@ const I18N = {
     download_all: 'Télécharger tous les CSV',
   },
   de: {
-    websocket_label: 'WebSocket:',
-    wsDisconnected: 'Getrennt',
     live_mode: 'Live-Modus',
     refresh_runs: 'Aktualisieren',
     select_run_placeholder: 'Lauf auswählen…',
@@ -2365,7 +2329,13 @@ function showRunSelectionDialog(runs) {
 // Load and plot CSV from SD card
 async function loadAndPlotCSV(filename) {
   try {
-    const resp = await fetch(`/api/runs/${encodeURIComponent(filename)}`);
+    // If filename contains '/', it's a profile run (PROFILE/FILE.CSV)
+    // Otherwise it's an unsorted run (FILE.CSV)
+    const url = filename.includes('/') 
+      ? `/api/runs/${encodeURIComponent(filename)}` // For profile: /api/runs/PROFILE%2FFILE.CSV becomes /sdcard/PROFILE/FILE.CSV on server
+      : `/api/runs/${encodeURIComponent(filename)}`; // For unsorted: /api/runs/FILE.CSV becomes /sdcard/FILE.CSV on server
+    
+    const resp = await fetch(url);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const csvText = await resp.text();
     
@@ -2398,6 +2368,30 @@ async function loadAndPlotCSV(filename) {
     liveMode = false;
     if (liveModeChk) liveModeChk.checked = false;
     stopHttpPolling();
+    
+    // Store data in history for hover functionality
+    sensorPressureHistory = [[], [], [], [], [], [], [], []];
+    for (let sensor = 1; sensor <= 8; sensor++) {
+      const data = sensorData[sensor];
+      if (data) {
+        for (let i = 0; i < data.x.length; i++) {
+          const voltage = data.y[i];
+          // Store as voltage (0-3.3V) not percentage
+          sensorPressureHistory[sensor - 1].push({ time: data.x[i], pressure: voltage });
+        }
+      }
+    }
+    
+    // Calculate averages
+    for (let i = 0; i < 8; i++) {
+      if (sensorPressureHistory[i].length > 0) {
+        const sum = sensorPressureHistory[i].reduce((acc, item) => acc + item.pressure, 0);
+        sensorPressureAverages[i] = sum / sensorPressureHistory[i].length;
+      }
+    }
+    
+    // Update heatmap with averages
+    updateHandlebarHeatmap();
     
     // Build traces for right handle (sensors 1-4)
     const tracesRight = [];
@@ -2437,6 +2431,30 @@ async function loadAndPlotCSV(filename) {
     
     Plotly.react(chartDivRight, tracesRight, layoutCSV, chartConfig);
     Plotly.react(chartDivLeft, tracesLeft, layoutCSV, chartConfig);
+    
+    // Add hover events to update heatmap based on cursor position
+    chartDivRight.on('plotly_hover', (data) => {
+      if (data.points && data.points[0]) {
+        hoverTime = data.points[0].x;
+        updateHandlebarHeatmap();
+      }
+    });
+    chartDivLeft.on('plotly_hover', (data) => {
+      if (data.points && data.points[0]) {
+        hoverTime = data.points[0].x;
+        updateHandlebarHeatmap();
+      }
+    });
+    
+    // Reset to average when not hovering
+    chartDivRight.on('plotly_unhover', () => {
+      hoverTime = null;
+      updateHandlebarHeatmap();
+    });
+    chartDivLeft.on('plotly_unhover', () => {
+      hoverTime = null;
+      updateHandlebarHeatmap();
+    });
     
     logToConsole(`Loaded ${filename} with ${lines.length - 1} samples`);
     

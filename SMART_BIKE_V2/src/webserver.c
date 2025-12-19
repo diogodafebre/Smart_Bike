@@ -68,6 +68,8 @@ static const char* contentType(const char* path) {
   if (strcmp(ext, ".svg") == 0)  return "image/svg+xml";
   if (strcmp(ext, ".ico") == 0)  return "image/x-icon";
   if (strcmp(ext, ".json") == 0) return "application/json";
+  if (strcmp(ext, ".glb") == 0 || strcmp(ext, ".GLB") == 0) return "model/gltf-binary";
+  if (strcmp(ext, ".gltf") == 0 || strcmp(ext, ".GLTF") == 0) return "model/gltf+json";
   if (strcmp(ext, ".gz") == 0) {
     // For .gz files, look at the extension before .gz
     char tmp[256];
@@ -86,6 +88,29 @@ static bool endsWith(const char* str, const char* suffix) {
   size_t suffix_len = strlen(suffix);
   if (suffix_len > str_len) return false;
   return strcmp(str + str_len - suffix_len, suffix) == 0;
+}
+
+// URL decode a string in-place (convert %XX to actual characters)
+static void urlDecode(char* str) {
+  char* dst = str;
+  char* src = str;
+  char hex[3] = {0};
+  
+  while (*src) {
+    if (*src == '%' && src[1] && src[2]) {
+      hex[0] = src[1];
+      hex[1] = src[2];
+      hex[2] = '\0';
+      *dst++ = (char)strtol(hex, NULL, 16);
+      src += 3;
+    } else if (*src == '+') {
+      *dst++ = ' ';
+      src++;
+    } else {
+      *dst++ = *src++;
+    }
+  }
+  *dst = '\0';
 }
 
 // Stream file with proper headers
@@ -148,7 +173,7 @@ static bool fileExists(const char* path) {
   return (stat(path, &st) == 0);
 }
 
-// Serve a file from SPIFFS
+// Serve a file from SPIFFS or SD card
 static esp_err_t serveFile(httpd_req_t *req, const char* uri) {
   char filepath[256];
   
@@ -159,13 +184,13 @@ static esp_err_t serveFile(httpd_req_t *req, const char* uri) {
     snprintf(filepath, sizeof(filepath), "/spiffs%s", uri);
   }
 
-  // 1) Try exact file
+  // 1) Try exact file in SPIFFS
   if (fileExists(filepath)) {
     bool isGz = endsWith(filepath, ".gz");
     return streamFile(req, filepath, isGz);
   }
 
-  // 2) Try gzip version
+  // 2) Try gzip version in SPIFFS
   char gzpath[260];
   snprintf(gzpath, sizeof(gzpath), "%s.gz", filepath);
   if (fileExists(gzpath)) {
@@ -196,6 +221,14 @@ static esp_err_t serveFile(httpd_req_t *req, const char* uri) {
     }
     
     return streamFile(req, gzpath, true);
+  }
+
+  // 3) Try SD card (for model files and other assets)
+  char sdpath[256];
+  snprintf(sdpath, sizeof(sdpath), "/sdcard%s", uri);
+  if (fileExists(sdpath)) {
+    ESP_LOGI(TAG, "Serving from SD card: %s", sdpath);
+    return streamFile(req, sdpath, false);
   }
 
   return ESP_FAIL;
@@ -663,20 +696,32 @@ static esp_err_t api_active_runner_post(httpd_req_t *req) {
 
 // API endpoint: /api/runs/<filename> - Download a specific RUN file from SD
 static esp_err_t api_run_file_handler(httpd_req_t *req) {
-  // Extract filename from URI (e.g., /api/runs/RUN1.CSV)
+  // Extract path from URI (e.g., /api/runs/RUN1.CSV or /api/runs/PROFILE/RUN1.CSV)
   const char* uri = req->uri;
-  const char* filename = strrchr(uri, '/');
-  if (!filename || strlen(filename) <= 1) {
-    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid filename");
+  const char* pathStart = strstr(uri, "/api/runs/");
+  if (!pathStart) {
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid URI");
     return ESP_FAIL;
   }
-  filename++; // Skip the '/'
+  pathStart += strlen("/api/runs/");
+  
+  if (strlen(pathStart) == 0) {
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing filename");
+    return ESP_FAIL;
+  }
+  
+  // Copy and decode the path (handles %2F -> / conversion)
+  char decodedPath[240];
+  strncpy(decodedPath, pathStart, sizeof(decodedPath) - 1);
+  decodedPath[sizeof(decodedPath) - 1] = '\0';
+  urlDecode(decodedPath);
   
   char filepath[256];
-  snprintf(filepath, sizeof(filepath), "/sdcard/%s", filename);
+  snprintf(filepath, sizeof(filepath), "/sdcard/%s", decodedPath);
   
   FILE* f = fopen(filepath, "r");
   if (!f) {
+    ESP_LOGE(TAG, "File not found: %s", filepath);
     httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
     return ESP_FAIL;
   }
@@ -696,6 +741,7 @@ static esp_err_t api_run_file_handler(httpd_req_t *req) {
   }
   httpd_resp_send_chunk(req, NULL, 0);
   fclose(f);
+  ESP_LOGI(TAG, "Sent file: %s", filepath);
   return ESP_OK;
 }
 

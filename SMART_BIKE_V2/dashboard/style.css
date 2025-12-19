@@ -19,6 +19,49 @@
 .topbar .brand img { width:28px; height:28px; }
 .topbar .chart-controls { display:flex; gap:0.5rem; flex-wrap:wrap; margin-left: 1rem; }
 .topbar .topbar-actions { margin-left:auto; display:flex; align-items:center; gap:0.5rem; }
+/* Live data toggle styling */
+#live_data_toggle { cursor: pointer; width: 16px; height: 16px; }
+#run_selector_container { display: flex; align-items: center; gap: 4px; }
+
+/* Heatmap legend styling */
+.heatmap-legend {
+  position: absolute;
+  top: 150px;
+  left: 25%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: white;
+  z-index: 10;
+}
+
+#handlebar_container {
+  position: relative;
+}
+
+.legend-gradient {
+  width: 150px;
+  height: 20px;
+  background: linear-gradient(to right, 
+    rgb(0, 0, 255),      /* Blue - low */
+    rgb(0, 255, 0),      /* Green */
+    rgb(255, 255, 0),    /* Yellow */
+    rgb(255, 0, 0)       /* Red - high */
+  );
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+}
+
+.legend-label {
+  font-weight: 500;
+  white-space: nowrap;
+}
 /* WebSocket status pill */
 .ws-status { display:flex; align-items:center; gap:0.4rem; font-size: 0.85rem; padding: 0.2rem 0.5rem; background: var(--color-white); border: 1px solid var(--color-info-light); border-radius: 999px; color: var(--color-dark-variant); }
 .ws-status .status { font-weight: 600; }
