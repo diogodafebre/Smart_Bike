@@ -1,5 +1,3 @@
-
-
 #ifndef LIB_FSR_FSR_C
 #define LIB_FSR_FSR_C
 
