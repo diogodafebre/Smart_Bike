@@ -62,7 +62,6 @@ esp_err_t fsr_init(void) {
 
 esp_err_t fsr_read(fsr_values_t* values) {
     for (int i = 0; i < FSR_COUNT; i++) {
-        // Select MUX
         ESP_ERROR_CHECK(gpio_set_level(FSR_SEL_A_GPIO, (i >> 0) & 0x01));
         ESP_ERROR_CHECK(gpio_set_level(FSR_SEL_B_GPIO, (i >> 1) & 0x01));
         ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC1_CHAN0, &values->fsr_b_values[i]));
