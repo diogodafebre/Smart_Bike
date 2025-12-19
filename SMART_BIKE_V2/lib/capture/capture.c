@@ -25,7 +25,7 @@
 #include "freertos/task.h"
 #include "sdmmc_cmd.h"
 
-static esp_err_t spt_init_timer(void);
+static esp_err_t cpt_init_timer(void);
 static esp_err_t cpt_task(void);
 
 typedef enum {
@@ -78,7 +78,7 @@ void cpt_init(void) {
     fsr_init();
     ESP_LOGI(TAG, "OK");
     ESP_LOGI(TAG, "Timer Init...");
-    spt_init_timer();
+    cpt_init_timer();
     ESP_LOGI(TAG, "OK");
     ESP_LOGI(TAG, "Pin Init...");
     cpt_pin();
@@ -113,7 +113,7 @@ void IRAM_ATTR timer_callback(void* arg) {
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
-static esp_err_t spt_init_timer(void) {
+static esp_err_t cpt_init_timer(void) {
     esp_timer_create_args_t timer_args = { .callback = &timer_callback, .arg = xTaskGetCurrentTaskHandle(), .name = "us_timer" };
     return esp_timer_create(&timer_args, &timer_handle);
 }
@@ -125,26 +125,26 @@ void cpt_deinit(void) {
     ESP_LOGI(TAG, "Capture Deinit done");
 }
 
-esp_err_t cpt_read_all_data(cpt_data_t* data) {
-    esp_err_t ret;
+// esp_err_t cpt_read_all_data(cpt_data_t* data) {
+//     esp_err_t ret;
 
-    ret = i2c_sensor_icm42670_read_angles(&data->angles);
-    ESP_RETURN_ON_ERROR(ret, TAG, "ICM42670 read angles failed");
+//     ret = i2c_sensor_icm42670_read_angles(&data->angles);
+//     ESP_RETURN_ON_ERROR(ret, TAG, "ICM42670 read angles failed");
 
-    ret = fsr_read(&data->fsr_values);
-    ESP_RETURN_ON_ERROR(ret, TAG, "FSR read values failed");
+//     ret = fsr_read_calibrated(&data->fsr_values);
+//     ESP_RETURN_ON_ERROR(ret, TAG, "FSR read values failed");
 
-    return ESP_OK;
-}
+//     return ESP_OK;
+// }
 
-esp_err_t cpt_read_fsr_data(fsr_values_t* fsr_values) {
-    esp_err_t ret;
+// // esp_err_t cpt_read_fsr_data(fsr_values_t* fsr_values) {
+// //     esp_err_t ret;
 
-    ret = fsr_read(fsr_values);
-    ESP_RETURN_ON_ERROR(ret, TAG, "FSR read values failed");
+//     ret = fsr_read_calibrated(fsr_values);
+//     ESP_RETURN_ON_ERROR(ret, TAG, "FSR read values failed");
 
-    return ESP_OK;
-}
+//     return ESP_OK;
+// }
 
 esp_err_t cpt_read_icm_data(complimentary_angle_t* angles) {
     esp_err_t ret;
@@ -164,14 +164,14 @@ esp_err_t cpt_write_data_to_sd(const char* path, const cpt_data_t* data) {
         (cpt_time_ticks / 2),
         data->angles.roll,
         data->angles.pitch,
-        data->fsr_values.fsr_b_values[0],
-        data->fsr_values.fsr_b_values[1],
-        data->fsr_values.fsr_b_values[2],
-        data->fsr_values.fsr_b_values[3],
-        data->fsr_values.fsr_a_values[0],
-        data->fsr_values.fsr_a_values[1],
-        data->fsr_values.fsr_a_values[2],
-        data->fsr_values.fsr_a_values[3]);
+        data->fsr_values.fsr_b_values[0] * OFFSET,
+        data->fsr_values.fsr_b_values[1] * OFFSET,
+        data->fsr_values.fsr_b_values[2] * OFFSET,
+        data->fsr_values.fsr_b_values[3] * OFFSET,
+        data->fsr_values.fsr_a_values[0] * OFFSET,
+        data->fsr_values.fsr_a_values[1] * OFFSET,
+        data->fsr_values.fsr_a_values[2] * OFFSET,
+        data->fsr_values.fsr_a_values[3] * OFFSET);
     ESP_LOGD(TAG, "Writing data to SD: %s", buffer);
     return sd_write_file(path, buffer);
 }
@@ -191,24 +191,8 @@ esp_err_t cpt_task_icm() {
 
 esp_err_t cpt_task_fsr() {
     esp_err_t ret;
-    // fsr_values_t fsr_values;
-
-    ret = fsr_read(&g_cpt_data.fsr_values);
+    ret = fsr_read_calibrated(&g_cpt_data.fsr_values);
     ESP_RETURN_ON_ERROR(ret, TAG, "FSR read values failed");
-
-    // ESP_LOGI(
-    //     TAG,
-    //     "FSR_B: %d,%d,%d,%d | FSR_A: %d,%d,%d,%d",
-    //     fsr_values.fsr_b_values[0],
-    //     fsr_values.fsr_b_values[1],
-    //     fsr_values.fsr_b_values[2],
-    //     fsr_values.fsr_b_values[3],
-    //     fsr_values.fsr_a_values[0],
-    //     fsr_values.fsr_a_values[1],
-    //     fsr_values.fsr_a_values[2],
-    //     fsr_values.fsr_a_values[3]);
-    // g_cpt_data.fsr_values = fsr_values;
-
     return ESP_OK;
 }
 
@@ -238,6 +222,7 @@ esp_err_t cpt_task_write_sd(const char* path) {
 // Start the capture task
 // Create files - write headers
 esp_err_t cpt_task_start() {
+    fsr_calibrate();
     cpt_run_id = sd_find_next_run_index();
     snprintf(cpt_file_path, sizeof(cpt_file_path), MOUNT_POINT "/RUN_%03u.csv", (unsigned int)cpt_run_id);
     ESP_LOGI(TAG, "Capture started, writing to file: %s", cpt_file_path);
@@ -301,16 +286,13 @@ esp_err_t cpt_task_once(void) {
     }
 
     if (cpt_started) {
-        // Blink LED every 500ms
-        if (count_led_blink >= 500 / (FREQ_CPT_READ_MS / 2)) {
+        if (count_led_blink >= 250 / (FREQ_CPT_READ_MS / 2)) {
             on = !on;
             gpio_set_level(PIN_RUN_LED, on);
-            ESP_LOGI(TAG, "LED toggled to: %d", on);
             count_led_blink = 0;
         } else {
             count_led_blink++;
         }
-        ESP_LOGI(TAG, "LED blink count: %d", count_led_blink);
     } else {
         // LED ON steady
         gpio_set_level(PIN_RUN_LED, 1);
@@ -392,9 +374,7 @@ esp_err_t cpt_task_once(void) {
 }
 
 static esp_err_t cpt_task(void) {
-    // ESP_LOGI(TAG, "Capture task started");
     while (1) {
-        // ESP_LOGI(TAG, "Capture task running");
         esp_err_t ret = cpt_task_once();
         ESP_RETURN_ON_ERROR(ret, TAG, "Capture task once failed");
         cpt_time_ticks += 1;

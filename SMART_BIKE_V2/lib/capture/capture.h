@@ -22,6 +22,7 @@
 #include "sdmmc_cmd.h"
 
 #define FREQ_CPT_READ_MS 10
+#define OFFSET 7
 
 #define PIN_RUN_SWITCH GPIO_NUM_1
 #define PIN_RUN_LED GPIO_NUM_2  // Continous ON when not running, Blinking when running
