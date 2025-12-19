@@ -374,6 +374,11 @@ esp_err_t icm42670_complimentory_filter(
     float acce_angle[2];
     float gyro_angle[2];
     float gyro_rate[2];
+
+    complimentary_angle->roll = atan2(acce_value->y, sqrt(acce_value->x * acce_value->x + acce_value->z * acce_value->z)) * RAD_TO_DEG;
+    complimentary_angle->pitch = atan2(-acce_value->x, sqrt(acce_value->y * acce_value->y + acce_value->z * acce_value->z)) * RAD_TO_DEG;
+
+    return ESP_OK;
     icm42670_dev_t* sens = (icm42670_dev_t*)sensor;
 
     sens->counter++;
@@ -400,8 +405,23 @@ esp_err_t icm42670_complimentory_filter(
     gyro_angle[0] = gyro_rate[0] * sens->dt;
     gyro_angle[1] = gyro_rate[1] * sens->dt;
 
+    // ESP_LOGI(TAG, "Comp angle before: [%.2f, %.2f]", complimentary_angle->roll, complimentary_angle->pitch);
+
     complimentary_angle->roll = (ALPHA * (complimentary_angle->roll + gyro_angle[0])) + ((1 - ALPHA) * acce_angle[0]);
     complimentary_angle->pitch = (ALPHA * (complimentary_angle->pitch + gyro_angle[1])) + ((1 - ALPHA) * acce_angle[1]);
+    // ESP_LOGI(
+    //     TAG,
+    //     "dt: %.6f, AccE Angle: [%.2f, %.2f], Gyro Rate: [%.2f, %.2f], Gyro Angle: [%.2f, %.2f], Comp Angle: [%.2f, %.2f], ALPHA: %.2f",
+    //     sens->dt,
+    //     acce_angle[0],
+    //     acce_angle[1],
+    //     gyro_rate[0],
+    //     gyro_rate[1],
+    //     gyro_angle[0],
+    //     gyro_angle[1],
+    //     complimentary_angle->roll,
+    //     complimentary_angle->pitch,
+    //     ALPHA);
 
     return ESP_OK;
 }
@@ -515,6 +535,7 @@ esp_err_t i2c_sensor_icm42670_read_angles(complimentary_angle_t* values) {
     ESP_RETURN_ON_ERROR(ret, TAG, "ICM42670 read angles failed");
     values->roll = complimentary_angle.roll;
     values->pitch = complimentary_angle.pitch;
+    // ESP_LOGI(TAG, "Roll: %.2f, Pitch: %.2f", values->roll, values->pitch);
     return ESP_OK;
 }
 
