@@ -555,12 +555,14 @@ async function startHttpPolling() {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       
       const data = await resp.json();
-      // data = { timestamp: <ms>, active: <bool>, run_id: <int>, sensors: [v1,v2,...v8] }
+      // data = { timestamp: <ms>, active: <bool>, run_id: <int>, roll: <deg>, pitch: <deg>, sensors: [v1,v2,...v8] }
       
       if (data.sensors && data.sensors.length === 8) {
         if (data.active) {
           // Run is active, display data normally
-          handleSensorData(data.sensors, data.timestamp);
+          const roll = data.roll !== undefined ? data.roll : 0;
+          const pitch = data.pitch !== undefined ? data.pitch : 0;
+          handleSensorData(data.sensors, data.timestamp, roll, pitch);
           noDataWarningShown = false;
         } else {
           // No run active - show message once
@@ -592,7 +594,7 @@ function stopHttpPolling() {
 }
 
 // Handle incoming sensor data from ESP32
-function handleSensorData(voltages, timestamp) {
+function handleSensorData(voltages, timestamp, roll, pitch) {
   if (!voltages || voltages.length !== 8) return;
   if (!liveMode || isPlottingCSV) return; // Don't update during CSV viewing
   
@@ -610,6 +612,11 @@ function handleSensorData(voltages, timestamp) {
   
   // Update sensor pressures for handlebar visualization (keep as voltages)
   sensorPressures = voltages.slice(); // Keep as voltage values (0-3.3V)
+  
+  // Update bike rotation if angles are provided
+  if (roll !== undefined && pitch !== undefined) {
+    updateBikeRotation(roll, pitch);
+  }
   
   // Store in history for averaging
   for (let i = 0; i < 8; i++) {
@@ -1280,6 +1287,17 @@ function onThreeResize() {
   threeRenderer.setSize(w, h);
 }
 
+// Update bike rotation based on IMU angles
+function updateBikeRotation(roll, pitch) {
+  if (!bikePivot) return;
+  
+  // Convert degrees to radians and apply rotation
+  // Roll: rotation around Z axis (bike tilting left/right)
+  // Pitch: rotation around X axis (bike tilting forward/backward)
+  oriRoll = roll * (Math.PI / 180);
+  oriPitch = pitch * (Math.PI / 180);
+}
+
 function tryLoadBikeModel(modelFileName = 'MODELS/BIKE/BIKE.GLB') {
   // When running from file://, show a helpful message but don't block
   // The model will work fine when served from ESP32's HTTP server
@@ -1723,18 +1741,7 @@ function frameHandlebar(object3D) {
 }
 
 function updateHandlebarHeatmap() {
-  console.log('>>> updateHandlebarHeatmap() called');
-  
-  if (!handlebarModel) {
-    console.log('>>> Handlebar model not loaded yet');
-    return;
-  }
-  
-  console.log('>>> Handlebar model exists, proceeding...');
-  console.log('>>> hoverTime:', hoverTime);
-  console.log('>>> useAveragePressure:', useAveragePressure);
-  console.log('>>> sensorPressures:', sensorPressures);
-  console.log('>>> sensorPressureAverages:', sensorPressureAverages);
+  if (!handlebarModel) return;
   
   // Determine which pressure values to use
   let pressuresToUse;
@@ -1762,8 +1769,11 @@ function updateHandlebarHeatmap() {
       }
       pressuresToUse[i] = closest.pressure;
     }
+  } else if (liveMode) {
+    // In live mode, always use current/latest values (no averaging)
+    pressuresToUse = sensorPressures;
   } else if (useAveragePressure) {
-    // Use averaged values
+    // Use averaged values (for CSV mode)
     pressuresToUse = sensorPressureAverages;
   } else {
     // Use current/latest values
@@ -1773,11 +1783,6 @@ function updateHandlebarHeatmap() {
   // Use fixed voltage range for consistent color mapping
   const maxPressure = 3.3;  // Max voltage
   const minPressure = 0.0;  // Min voltage
-  
-  // Debug: Log the pressure values being used
-  console.log('=== Heatmap Update Debug ===');
-  console.log('Pressures to use:', pressuresToUse);
-  console.log('Min pressure:', minPressure, 'Max pressure:', maxPressure);
   
   // Update legend with fixed voltage range
   const legendMin = document.getElementById('legend_min');
@@ -1875,11 +1880,6 @@ function updateHandlebarHeatmap() {
       
       // Normalize pressure (0-1) using min and max range
       const normalized = Math.min(Math.max((pressure - minPressure) / (maxPressure - minPressure), 0), 1);
-      
-      // Debug: Log for first vertex of each sensor (to avoid spam)
-      if (i % 100 === 0) {
-        console.log(`Sensor ${sensorIndex + 1}: pressure=${pressure.toFixed(3)}V, normalized=${normalized.toFixed(3)}`);
-      }
       
       // Color gradient: blue (low) -> green -> yellow -> red (high)
       let r, g, b;
@@ -2346,24 +2346,61 @@ async function loadAndPlotCSV(filename) {
     const lines = csvText.trim().split('\n');
     if (lines.length < 2) throw new Error('CSV file is empty');
     
-    const header = lines[0].split(',');
-    // Expected: run,time_run_ms,capteur,value_V
+    const header = lines[0].split(',').map(s => s.trim());
     
-    // Group data by sensor (capteur)
+    // Detect format by checking header
+    const isNewFormat = header.length >= 11 && header[0].toLowerCase().includes('time');
+    const isOldFormat = header.length >= 4 && header.some(h => h.toLowerCase().includes('capteur'));
+    
+    // Group data by sensor
     const sensorData = {};
-    for (let i = 1; i < lines.length; i++) {
-      const parts = lines[i].split(',');
-      if (parts.length < 4) continue;
-      
-      const timeMs = parseFloat(parts[1]);
-      const sensor = parseInt(parts[2]);
-      const voltage = parseFloat(parts[3]);
-      
-      if (!sensorData[sensor]) {
-        sensorData[sensor] = { x: [], y: [] };
+    for (let i = 1; i <= 8; i++) {
+      sensorData[i] = { x: [], y: [] };
+    }
+    
+    if (isNewFormat) {
+      // New format: Time(ms), Roll(deg), Pitch(deg), FSR_B0, FSR_B1, FSR_B2, FSR_B3, FSR_A0, FSR_A1, FSR_A2, FSR_A3
+      // FSR values are 12-bit ADC values (0-4095), need to convert to voltage (0-3.3V) and multiply by 7
+      for (let i = 1; i < lines.length; i++) {
+        const parts = lines[i].split(',').map(s => s.trim());
+        if (parts.length < 11) continue;
+        
+        const timeMs = parseFloat(parts[0]);
+        const timeS = timeMs / 1000; // Convert to seconds
+        
+        // FSR_B0-B3 (Right grip: sensors 1-4)
+        for (let j = 0; j < 4; j++) {
+          const adcValue = parseInt(parts[3 + j]);
+          const voltage = ((adcValue * 3.3) / 4095) * 7; // Convert 12-bit ADC to voltage and multiply by 7
+          sensorData[j + 1].x.push(timeS);
+          sensorData[j + 1].y.push(voltage);
+        }
+        
+        // FSR_A0-A3 (Left grip: sensors 5-8)
+        for (let j = 0; j < 4; j++) {
+          const adcValue = parseInt(parts[7 + j]);
+          const voltage = ((adcValue * 3.3) / 4095) * 7; // Convert 12-bit ADC to voltage and multiply by 7
+          sensorData[j + 5].x.push(timeS);
+          sensorData[j + 5].y.push(voltage);
+        }
       }
-      sensorData[sensor].x.push(timeMs / 1000); // Convert to seconds
-      sensorData[sensor].y.push(voltage);
+    } else if (isOldFormat) {
+      // Old format: run,time_run_ms,capteur,value_V
+      for (let i = 1; i < lines.length; i++) {
+        const parts = lines[i].split(',').map(s => s.trim());
+        if (parts.length < 4) continue;
+        
+        const timeMs = parseFloat(parts[1]);
+        const sensor = parseInt(parts[2]);
+        const voltage = parseFloat(parts[3]);
+        
+        if (sensor >= 1 && sensor <= 8) {
+          sensorData[sensor].x.push(timeMs / 1000); // Convert to seconds
+          sensorData[sensor].y.push(voltage);
+        }
+      }
+    } else {
+      throw new Error('Unknown CSV format');
     }
     
     // Stop live mode and clear charts

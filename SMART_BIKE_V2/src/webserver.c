@@ -16,7 +16,7 @@
 #include "nvs.h"
 #include <ctype.h>
 #include "esp_mac.h"
-#include "shared.h"  // Access to sensor data
+#include <capture.h>  // Access to sensor data from capture library
 #include "mdns.h"
 
 static const char* TAG = "SmartBike";
@@ -354,21 +354,26 @@ static esp_err_t download_handler(httpd_req_t *req) {
 static esp_err_t api_live_handler(httpd_req_t *req) {
   char json[512];
   
-  // Build JSON with all 8 sensor values
+  // Get latest sensor data from capture library
+  float voltages[8];
+  cpt_get_latest_voltages(voltages);
+  float roll = 0.0f, pitch = 0.0f;
+  cpt_get_latest_angles(&roll, &pitch);
+  uint64_t timestamp_ms = cpt_get_time_ms();
+  bool active = cpt_is_running();
+  uint32_t run_id = cpt_get_run_id();
+  
+  // Build JSON with all 8 sensor values plus roll and pitch
   int len = snprintf(json, sizeof(json),
-    "{\"timestamp\":%lu,\"active\":%s,\"run_id\":%d,\"sensors\":["
+    "{\"timestamp\":%llu,\"active\":%s,\"run_id\":%lu,\"roll\":%.2f,\"pitch\":%.2f,\"sensors\":["
     "%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f]}",
-    (unsigned long)g_latest_sensor_data.timestamp_ms,
-    g_run_active ? "true" : "false",
-    g_run_id,
-    g_latest_sensor_data.voltages[0],
-    g_latest_sensor_data.voltages[1],
-    g_latest_sensor_data.voltages[2],
-    g_latest_sensor_data.voltages[3],
-    g_latest_sensor_data.voltages[4],
-    g_latest_sensor_data.voltages[5],
-    g_latest_sensor_data.voltages[6],
-    g_latest_sensor_data.voltages[7]
+    timestamp_ms,
+    active ? "true" : "false",
+    (unsigned long)run_id,
+    roll,
+    pitch,
+    voltages[0], voltages[1], voltages[2], voltages[3],
+    voltages[4], voltages[5], voltages[6], voltages[7]
   );
   
   httpd_resp_set_type(req, "application/json");
@@ -400,14 +405,18 @@ static esp_err_t api_runs_handler(httpd_req_t *req) {
   
   while ((entry = readdir(dir)) != NULL) {
     if (entry->d_type == DT_REG) {
-      // Check if it's a RUN*.CSV file
-      if (strstr(entry->d_name, "RUN") == entry->d_name && 
-          strstr(entry->d_name, ".CSV") != NULL) {
-        if (!first) strcat(json, ",");
-        strcat(json, "\"");
-        strcat(json, entry->d_name);
-        strcat(json, "\"");
-        first = false;
+      // Check if it's a RUN file (.CSV or .txt)
+      // Supports: RUNxx.CSV (old) and RUN_xxx.txt (new)
+      const char* name = entry->d_name;
+      if (strstr(name, "RUN") == name) {
+        const char* ext = strrchr(name, '.');
+        if (ext && (strcasecmp(ext, ".CSV") == 0 || strcasecmp(ext, ".txt") == 0)) {
+          if (!first) strcat(json, ",");
+          strcat(json, "\"");
+          strcat(json, name);
+          strcat(json, "\"");
+          first = false;
+        }
       }
     }
   }
@@ -484,10 +493,16 @@ static esp_err_t api_runs_in_handler(httpd_req_t *req) {
   strcpy(json, "["); bool first = true; struct dirent* e;
   while ((e = readdir(dir)) != NULL) {
     if (e->d_type == DT_REG) {
-      if (strstr(e->d_name, "RUN") == e->d_name && strstr(e->d_name, ".CSV")) {
-        if (!first) strcat(json, ",");
-        strcat(json, "\""); strcat(json, e->d_name); strcat(json, "\"");
-        first = false;
+      // Check if it's a RUN file (.CSV or .txt)
+      // Supports: RUNxx.CSV (old) and RUN_xxx.txt (new)
+      const char* name = e->d_name;
+      if (strstr(name, "RUN") == name) {
+        const char* ext = strrchr(name, '.');
+        if (ext && (strcasecmp(ext, ".CSV") == 0 || strcasecmp(ext, ".txt") == 0)) {
+          if (!first) strcat(json, ",");
+          strcat(json, "\""); strcat(json, name); strcat(json, "\"");
+          first = false;
+        }
       }
     }
   }

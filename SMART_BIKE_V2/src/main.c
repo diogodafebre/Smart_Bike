@@ -1,11 +1,14 @@
 // Integrated main entry point for Smart Bike
-// Coordinates ADC sensor module and web server module
+// Coordinates capture library (sensors, IMU, SD) and web server module
 
+#include <capture.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
-#include "shared.h"
+
+// Forward declaration for web_init
+void web_init(void);
 
 static const char *TAG = "SMART_BIKE_MAIN";
 
@@ -17,14 +20,17 @@ void app_main(void)
     ESP_LOGI(TAG, "=== SMART BIKE V2 ===");
     ESP_LOGI(TAG, "Initializing integrated system...");
 
-    // Initialize sensor module
-    sensor_init();
-
-    // Initialize web server module (WiFi + HTTP server)
+    // Initialize capture system FIRST (FSR sensors, IMU, SD card)
+    ESP_LOGI(TAG, "Initializing capture system...");
+    cpt_init();
+    
+    // Then initialize web server module (WiFi + HTTP server)
+    // This order ensures SD card is mounted before webserver might try to access it
     web_init();
-
-    // Create sensor task (handles ADC, SD, button, LED)
-    xTaskCreate(sensor_task, "sensor_task", 4096, NULL, 5, NULL);
+    
+    // Start capture task (handles sensor reading, SD writing, button, LED)
+    ESP_LOGI(TAG, "Starting capture task...");
+    cpt_start_task();
 
     ESP_LOGI(TAG, "System ready!");
     ESP_LOGI(TAG, "Connect to WiFi AP 'SmartBike' and browse to http://192.168.4.1/");
