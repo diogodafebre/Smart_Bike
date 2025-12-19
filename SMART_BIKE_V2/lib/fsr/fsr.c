@@ -70,4 +70,27 @@ esp_err_t fsr_read(fsr_values_t* values) {
     return ESP_OK;
 }
 
+esp_err_t fsr_read_calibrated(fsr_values_t* values) {
+    for (int i = 0; i < FSR_COUNT; i++) {
+        ESP_ERROR_CHECK(gpio_set_level(FSR_SEL_A_GPIO, (i >> 0) & 0x01));
+        ESP_ERROR_CHECK(gpio_set_level(FSR_SEL_B_GPIO, (i >> 1) & 0x01));
+        int raw_b, raw_a;
+        ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC1_CHAN0, &raw_b));
+        ESP_ERROR_CHECK(adc_oneshot_read(adc2_handle, ADC2_CHAN0, &raw_a));
+        values->fsr_b_values[i] = raw_b - g_fsr_calibration_values.fsr_b_values[i];
+        values->fsr_a_values[i] = raw_a - g_fsr_calibration_values.fsr_a_values[i];
+    }
+    return ESP_OK;
+}
+
+esp_err_t fsr_calibrate(void) {
+    for (int i = 0; i < FSR_COUNT; i++) {
+        ESP_ERROR_CHECK(gpio_set_level(FSR_SEL_A_GPIO, (i >> 0) & 0x01));
+        ESP_ERROR_CHECK(gpio_set_level(FSR_SEL_B_GPIO, (i >> 1) & 0x01));
+        ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC1_CHAN0, &g_fsr_calibration_values.fsr_b_values[i]));
+        ESP_ERROR_CHECK(adc_oneshot_read(adc2_handle, ADC2_CHAN0, &g_fsr_calibration_values.fsr_a_values[i]));
+    }
+    return ESP_OK;
+}
+
 #endif  // LIB_FSR_FSR_C

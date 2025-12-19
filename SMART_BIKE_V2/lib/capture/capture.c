@@ -164,14 +164,14 @@ esp_err_t cpt_write_data_to_sd(const char* path, const cpt_data_t* data) {
         (cpt_time_ticks / 2),
         data->angles.roll,
         data->angles.pitch,
-        data->fsr_values.fsr_b_values[0],
-        data->fsr_values.fsr_b_values[1],
-        data->fsr_values.fsr_b_values[2],
-        data->fsr_values.fsr_b_values[3],
-        data->fsr_values.fsr_a_values[0],
-        data->fsr_values.fsr_a_values[1],
-        data->fsr_values.fsr_a_values[2],
-        data->fsr_values.fsr_a_values[3]);
+        data->fsr_values.fsr_b_values[0] * GAIN_FSR,
+        data->fsr_values.fsr_b_values[1] * GAIN_FSR,
+        data->fsr_values.fsr_b_values[2] * GAIN_FSR,
+        data->fsr_values.fsr_b_values[3] * GAIN_FSR,
+        data->fsr_values.fsr_a_values[0] * GAIN_FSR,
+        data->fsr_values.fsr_a_values[1] * GAIN_FSR,
+        data->fsr_values.fsr_a_values[2] * GAIN_FSR,
+        data->fsr_values.fsr_a_values[3] * GAIN_FSR);
     ESP_LOGI(TAG, "Writing data to SD: %s", buffer);
     return sd_write_file(path, buffer);
 }
@@ -191,24 +191,9 @@ esp_err_t cpt_task_icm() {
 
 esp_err_t cpt_task_fsr() {
     esp_err_t ret;
-    // fsr_values_t fsr_values;
-
-    ret = fsr_read(&g_cpt_data.fsr_values);
+    // ret = fsr_read(&g_cpt_data.fsr_values);
+    ret = fsr_read_calibrated(&g_cpt_data.fsr_values);
     ESP_RETURN_ON_ERROR(ret, TAG, "FSR read values failed");
-
-    // ESP_LOGI(
-    //     TAG,
-    //     "FSR_B: %d,%d,%d,%d | FSR_A: %d,%d,%d,%d",
-    //     fsr_values.fsr_b_values[0],
-    //     fsr_values.fsr_b_values[1],
-    //     fsr_values.fsr_b_values[2],
-    //     fsr_values.fsr_b_values[3],
-    //     fsr_values.fsr_a_values[0],
-    //     fsr_values.fsr_a_values[1],
-    //     fsr_values.fsr_a_values[2],
-    //     fsr_values.fsr_a_values[3]);
-    // g_cpt_data.fsr_values = fsr_values;
-
     return ESP_OK;
 }
 
@@ -238,6 +223,7 @@ esp_err_t cpt_task_write_sd(const char* path) {
 // Start the capture task
 // Create files - write headers
 esp_err_t cpt_task_start() {
+    fsr_calibrate();
     cpt_run_id = sd_find_next_run_index();
     snprintf(cpt_file_path, sizeof(cpt_file_path), MOUNT_POINT "/RUN_%03u.txt", (unsigned int)cpt_run_id);
     ESP_LOGI(TAG, "Capture started, writing to file: %s", cpt_file_path);
@@ -270,18 +256,14 @@ esp_err_t cpt_task_once(void) {
     }
 
     if (cpt_started) {
-        // Blink LED every 500ms
-        if (count_led_blink >= 500 / (FREQ_CPT_READ_MS / 2)) {
+        if (count_led_blink >= 250 / (FREQ_CPT_READ_MS / 2)) {
             on = !on;
             gpio_set_level(PIN_RUN_LED, on);
-            // ESP_LOGI(TAG, "LED toggled to: %d", on);
             count_led_blink = 0;
         } else {
             count_led_blink++;
         }
-        // ESP_LOGI(TAG, "LED blink count: %d", count_led_blink);
     } else {
-        // LED ON steady
         gpio_set_level(PIN_RUN_LED, 1);
         count_led_blink = 0;
     }

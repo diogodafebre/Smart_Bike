@@ -26,6 +26,8 @@
 #define PIN_RUN_SWITCH GPIO_NUM_1
 #define PIN_RUN_LED GPIO_NUM_2  // Continous ON when not running, Blinking when running
 
+#define GAIN_FSR 8.0f
+
 void cpt_init(void);
 
 void cpt_deinit(void);

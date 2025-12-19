@@ -36,7 +36,11 @@ typedef struct {
     int fsr_b_values[FSR_COUNT];
 } fsr_values_t;
 
+fsr_values_t g_fsr_calibration_values;
+
 esp_err_t fsr_init(void);
 esp_err_t fsr_read(fsr_values_t* values);
+esp_err_t fsr_calibrate(void);
+esp_err_t fsr_read_calibrated(fsr_values_t* values);
 
 #endif  // LIB_FSR_FSR_H
