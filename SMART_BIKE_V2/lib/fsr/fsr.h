@@ -25,6 +25,8 @@
 #define ADC2_CHAN0 ADC_CHANNEL_0
 
 #define FSR_COUNT 4
+#define FSR_SEL_A_GPIO GPIO_NUM_3
+#define FSR_SEL_B_GPIO GPIO_NUM_4
 
 extern adc_oneshot_unit_handle_t adc1_handle;
 extern adc_oneshot_unit_handle_t adc2_handle;

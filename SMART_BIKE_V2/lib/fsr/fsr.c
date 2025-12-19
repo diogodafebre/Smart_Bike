@@ -47,11 +47,24 @@ esp_err_t fsr_init(void) {
     ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC1_CHAN0, &config));
     ESP_ERROR_CHECK(adc_oneshot_config_channel(adc2_handle, ADC2_CHAN0, &config));
 
+    // Set GPIOs for FSR selection
+    gpio_config_t io_conf = {
+        .intr_type = GPIO_INTR_DISABLE,
+        .mode = GPIO_MODE_OUTPUT,
+        .pin_bit_mask = (1ULL << FSR_SEL_A_GPIO) | (1ULL << FSR_SEL_B_GPIO),
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&io_conf));
+
     return ESP_OK;
 }
 
 esp_err_t fsr_read(fsr_values_t* values) {
     for (int i = 0; i < FSR_COUNT; i++) {
+        // Select MUX
+        ESP_ERROR_CHECK(gpio_set_level(FSR_SEL_A_GPIO, (i >> 0) & 0x01));
+        ESP_ERROR_CHECK(gpio_set_level(FSR_SEL_B_GPIO, (i >> 1) & 0x01));
         ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC1_CHAN0, &values->fsr_b_values[i]));
         ESP_ERROR_CHECK(adc_oneshot_read(adc2_handle, ADC2_CHAN0, &values->fsr_a_values[i]));
     }

@@ -172,7 +172,7 @@ esp_err_t cpt_write_data_to_sd(const char* path, const cpt_data_t* data) {
         data->fsr_values.fsr_a_values[1],
         data->fsr_values.fsr_a_values[2],
         data->fsr_values.fsr_a_values[3]);
-    ESP_LOGD(TAG, "Writing data to SD: %s", buffer);
+    ESP_LOGI(TAG, "Writing data to SD: %s", buffer);
     return sd_write_file(path, buffer);
 }
 
@@ -274,12 +274,12 @@ esp_err_t cpt_task_once(void) {
         if (count_led_blink >= 500 / (FREQ_CPT_READ_MS / 2)) {
             on = !on;
             gpio_set_level(PIN_RUN_LED, on);
-            ESP_LOGI(TAG, "LED toggled to: %d", on);
+            // ESP_LOGI(TAG, "LED toggled to: %d", on);
             count_led_blink = 0;
         } else {
             count_led_blink++;
         }
-        ESP_LOGI(TAG, "LED blink count: %d", count_led_blink);
+        // ESP_LOGI(TAG, "LED blink count: %d", count_led_blink);
     } else {
         // LED ON steady
         gpio_set_level(PIN_RUN_LED, 1);
