@@ -4,81 +4,85 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <string.h>
-#include <stdio.h>
+#ifndef LIB_ICM42670_ICM42670_C
+#define LIB_ICM42670_ICM42670_C
+
+#include "icm42670.h"
+
 #include <math.h>
-#include <time.h>
+#include <stdio.h>
+#include <string.h>
 #include <sys/time.h>
-#include "esp_system.h"
+#include <time.h>
+
 #include "esp_check.h"
 #include "esp_rom_sys.h"
-#include "icm42670.h"
+#include "esp_system.h"
 
 #define I2C_CLK_SPEED 400000
 
-#define ALPHA                       0.99f        /*!< Weight of gyroscope */
-#define RAD_TO_DEG                  57.27272727f /*!< Radians to degrees */
+#define ALPHA 0.99f             /*!< Weight of gyroscope */
+#define RAD_TO_DEG 57.27272727f /*!< Radians to degrees */
 
 #define ICM42607_ID 0x60
 #define ICM42670_ID 0x67
 
 /* ICM42670 register */
-#define ICM42670_WHOAMI         0x75
-#define ICM42670_GYRO_CONFIG0   0x20
-#define ICM42670_ACCEL_CONFIG0  0x21
-#define ICM42670_TEMP_CONFIG    0x22
-#define ICM42670_PWR_MGMT0      0x1F
-#define ICM42670_TEMP_DATA      0x09
-#define ICM42670_ACCEL_DATA     0x0B
-#define ICM42670_GYRO_DATA      0x11
+#define ICM42670_WHOAMI 0x75
+#define ICM42670_GYRO_CONFIG0 0x20
+#define ICM42670_ACCEL_CONFIG0 0x21
+#define ICM42670_TEMP_CONFIG 0x22
+#define ICM42670_PWR_MGMT0 0x1F
+#define ICM42670_TEMP_DATA 0x09
+#define ICM42670_ACCEL_DATA 0x0B
+#define ICM42670_GYRO_DATA 0x11
 
 /* Sensitivity of the gyroscope */
 #define GYRO_FS_2000_SENSITIVITY (16.4)
 #define GYRO_FS_1000_SENSITIVITY (32.8)
-#define GYRO_FS_500_SENSITIVITY  (65.5)
-#define GYRO_FS_250_SENSITIVITY  (131.0)
+#define GYRO_FS_500_SENSITIVITY (65.5)
+#define GYRO_FS_250_SENSITIVITY (131.0)
 
 /* Sensitivity of the accelerometer */
 #define ACCE_FS_16G_SENSITIVITY (2048)
-#define ACCE_FS_8G_SENSITIVITY  (4096)
-#define ACCE_FS_4G_SENSITIVITY  (8192)
-#define ACCE_FS_2G_SENSITIVITY  (16384)
+#define ACCE_FS_8G_SENSITIVITY (4096)
+#define ACCE_FS_4G_SENSITIVITY (8192)
+#define ACCE_FS_2G_SENSITIVITY (16384)
 
 /*******************************************************************************
-* Types definitions
-*******************************************************************************/
+ * Types definitions
+ *******************************************************************************/
 
 typedef struct {
     i2c_master_dev_handle_t i2c_handle;
     uint32_t counter;
-    float dt;  /*!< delay time between two measurements, dt should be small (ms level) */
-    struct timeval *timer;
+    float dt; /*!< delay time between two measurements, dt should be small (ms level) */
+    struct timeval* timer;
 } icm42670_dev_t;
 
 /*******************************************************************************
-* Function definitions
-*******************************************************************************/
-static esp_err_t icm42670_write(icm42670_handle_t sensor, const uint8_t reg_start_addr, const uint8_t *data_buf, const uint8_t data_len);
-static esp_err_t icm42670_read(icm42670_handle_t sensor, const uint8_t reg_start_addr, uint8_t *data_buf, const uint8_t data_len);
+ * Function definitions
+ *******************************************************************************/
+esp_err_t icm42670_write(icm42670_handle_t sensor, const uint8_t reg_start_addr, const uint8_t* data_buf, const uint8_t data_len);
+esp_err_t icm42670_read(icm42670_handle_t sensor, const uint8_t reg_start_addr, uint8_t* data_buf, const uint8_t data_len);
 
-static esp_err_t icm42670_get_raw_value(icm42670_handle_t sensor, uint8_t reg, icm42670_raw_value_t *value);
-
-/*******************************************************************************
-* Local variables
-*******************************************************************************/
-static const char *TAG = "ICM42670";
+esp_err_t icm42670_get_raw_value(icm42670_handle_t sensor, uint8_t reg, icm42670_raw_value_t* value);
 
 /*******************************************************************************
-* Public API functions
-*******************************************************************************/
+ * Local variables
+ *******************************************************************************/
+static const char TAG[] = "ICM42670";
 
-esp_err_t icm42670_create(i2c_master_bus_handle_t i2c_bus, const uint8_t dev_addr, icm42670_handle_t *handle_ret)
-{
+/*******************************************************************************
+ * Public API functions
+ *******************************************************************************/
+
+esp_err_t icm42670_create(i2c_master_bus_handle_t i2c_bus, const uint8_t dev_addr, icm42670_handle_t* handle_ret) {
     esp_err_t ret = ESP_OK;
 
     // Allocate memory and init the driver object
-    icm42670_dev_t *sensor = (icm42670_dev_t *) calloc(1, sizeof(icm42670_dev_t));
-    struct timeval *timer = (struct timeval *) calloc(1, sizeof(struct timeval));
+    icm42670_dev_t* sensor = (icm42670_dev_t*)calloc(1, sizeof(icm42670_dev_t));
+    struct timeval* timer = (struct timeval*)calloc(1, sizeof(struct timeval));
     ESP_RETURN_ON_FALSE(sensor != NULL && timer != NULL, ESP_ERR_NO_MEM, TAG, "Not enough memory");
     sensor->timer = timer;
 
@@ -104,9 +108,8 @@ err:
     return ret;
 }
 
-void icm42670_delete(icm42670_handle_t sensor)
-{
-    icm42670_dev_t *sens = (icm42670_dev_t *) sensor;
+void icm42670_delete(icm42670_handle_t sensor) {
+    icm42670_dev_t* sens = (icm42670_dev_t*)sensor;
 
     if (sens->i2c_handle) {
         i2c_master_bus_rm_device(sens->i2c_handle);
@@ -119,8 +122,7 @@ void icm42670_delete(icm42670_handle_t sensor)
     free(sens);
 }
 
-esp_err_t icm42670_get_deviceid(icm42670_handle_t sensor, uint8_t *deviceid)
-{
+esp_err_t icm42670_get_deviceid(icm42670_handle_t sensor, uint8_t* deviceid) {
     esp_err_t ret = ESP_FAIL;
 
     assert(deviceid != NULL);
@@ -132,8 +134,7 @@ esp_err_t icm42670_get_deviceid(icm42670_handle_t sensor, uint8_t *deviceid)
     return ret;
 }
 
-esp_err_t icm42670_config(icm42670_handle_t sensor, const icm42670_cfg_t *config)
-{
+esp_err_t icm42670_config(icm42670_handle_t sensor, const icm42670_cfg_t* config) {
     uint8_t data[2];
 
     assert(config != NULL);
@@ -146,8 +147,7 @@ esp_err_t icm42670_config(icm42670_handle_t sensor, const icm42670_cfg_t *config
     return icm42670_write(sensor, ICM42670_GYRO_CONFIG0, data, sizeof(data));
 }
 
-esp_err_t icm42670_acce_set_pwr(icm42670_handle_t sensor, icm42670_acce_pwr_t state)
-{
+esp_err_t icm42670_acce_set_pwr(icm42670_handle_t sensor, icm42670_acce_pwr_t state) {
     esp_err_t ret = ESP_FAIL;
     uint8_t data;
 
@@ -161,8 +161,7 @@ esp_err_t icm42670_acce_set_pwr(icm42670_handle_t sensor, icm42670_acce_pwr_t st
     return ret;
 }
 
-esp_err_t icm42670_gyro_set_pwr(icm42670_handle_t sensor, icm42670_gyro_pwr_t state)
-{
+esp_err_t icm42670_gyro_set_pwr(icm42670_handle_t sensor, icm42670_gyro_pwr_t state) {
     esp_err_t ret = ESP_FAIL;
     uint8_t data;
 
@@ -176,8 +175,7 @@ esp_err_t icm42670_gyro_set_pwr(icm42670_handle_t sensor, icm42670_gyro_pwr_t st
     return ret;
 }
 
-esp_err_t icm42670_get_acce_sensitivity(icm42670_handle_t sensor, float *sensitivity)
-{
+esp_err_t icm42670_get_acce_sensitivity(icm42670_handle_t sensor, float* sensitivity) {
     esp_err_t ret = ESP_FAIL;
     uint8_t acce_fs;
 
@@ -189,26 +187,25 @@ esp_err_t icm42670_get_acce_sensitivity(icm42670_handle_t sensor, float *sensiti
     if (ret == ESP_OK) {
         acce_fs = (acce_fs >> 5) & 0x03;
         switch (acce_fs) {
-        case ACCE_FS_16G:
-            *sensitivity = ACCE_FS_16G_SENSITIVITY;
-            break;
-        case ACCE_FS_8G:
-            *sensitivity = ACCE_FS_8G_SENSITIVITY;
-            break;
-        case ACCE_FS_4G:
-            *sensitivity = ACCE_FS_4G_SENSITIVITY;
-            break;
-        case ACCE_FS_2G:
-            *sensitivity = ACCE_FS_2G_SENSITIVITY;
-            break;
+            case ACCE_FS_16G:
+                *sensitivity = ACCE_FS_16G_SENSITIVITY;
+                break;
+            case ACCE_FS_8G:
+                *sensitivity = ACCE_FS_8G_SENSITIVITY;
+                break;
+            case ACCE_FS_4G:
+                *sensitivity = ACCE_FS_4G_SENSITIVITY;
+                break;
+            case ACCE_FS_2G:
+                *sensitivity = ACCE_FS_2G_SENSITIVITY;
+                break;
         }
     }
 
     return ret;
 }
 
-esp_err_t icm42670_get_gyro_sensitivity(icm42670_handle_t sensor, float *sensitivity)
-{
+esp_err_t icm42670_get_gyro_sensitivity(icm42670_handle_t sensor, float* sensitivity) {
     esp_err_t ret = ESP_FAIL;
     uint8_t gyro_fs;
 
@@ -220,26 +217,25 @@ esp_err_t icm42670_get_gyro_sensitivity(icm42670_handle_t sensor, float *sensiti
     if (ret == ESP_OK) {
         gyro_fs = (gyro_fs >> 5) & 0x03;
         switch (gyro_fs) {
-        case GYRO_FS_2000DPS:
-            *sensitivity = GYRO_FS_2000_SENSITIVITY;
-            break;
-        case GYRO_FS_1000DPS:
-            *sensitivity = GYRO_FS_1000_SENSITIVITY;
-            break;
-        case GYRO_FS_500DPS:
-            *sensitivity = GYRO_FS_500_SENSITIVITY;
-            break;
-        case GYRO_FS_250DPS:
-            *sensitivity = GYRO_FS_250_SENSITIVITY;
-            break;
+            case GYRO_FS_2000DPS:
+                *sensitivity = GYRO_FS_2000_SENSITIVITY;
+                break;
+            case GYRO_FS_1000DPS:
+                *sensitivity = GYRO_FS_1000_SENSITIVITY;
+                break;
+            case GYRO_FS_500DPS:
+                *sensitivity = GYRO_FS_500_SENSITIVITY;
+                break;
+            case GYRO_FS_250DPS:
+                *sensitivity = GYRO_FS_250_SENSITIVITY;
+                break;
         }
     }
 
     return ret;
 }
 
-esp_err_t icm42670_get_temp_raw_value(icm42670_handle_t sensor, uint16_t *value)
-{
+esp_err_t icm42670_get_temp_raw_value(icm42670_handle_t sensor, uint16_t* value) {
     esp_err_t ret = ESP_FAIL;
     uint8_t data[2];
 
@@ -255,18 +251,15 @@ esp_err_t icm42670_get_temp_raw_value(icm42670_handle_t sensor, uint16_t *value)
     return ret;
 }
 
-esp_err_t icm42670_get_acce_raw_value(icm42670_handle_t sensor, icm42670_raw_value_t *value)
-{
+esp_err_t icm42670_get_acce_raw_value(icm42670_handle_t sensor, icm42670_raw_value_t* value) {
     return icm42670_get_raw_value(sensor, ICM42670_ACCEL_DATA, value);
 }
 
-esp_err_t icm42670_get_gyro_raw_value(icm42670_handle_t sensor, icm42670_raw_value_t *value)
-{
+esp_err_t icm42670_get_gyro_raw_value(icm42670_handle_t sensor, icm42670_raw_value_t* value) {
     return icm42670_get_raw_value(sensor, ICM42670_GYRO_DATA, value);
 }
 
-esp_err_t icm42670_get_acce_value(icm42670_handle_t sensor, icm42670_value_t *value)
-{
+esp_err_t icm42670_get_acce_value(icm42670_handle_t sensor, icm42670_value_t* value) {
     esp_err_t ret;
     float sensitivity;
     icm42670_raw_value_t raw_value;
@@ -290,8 +283,7 @@ esp_err_t icm42670_get_acce_value(icm42670_handle_t sensor, icm42670_value_t *va
     return ESP_OK;
 }
 
-esp_err_t icm42670_get_gyro_value(icm42670_handle_t sensor, icm42670_value_t *value)
-{
+esp_err_t icm42670_get_gyro_value(icm42670_handle_t sensor, icm42670_value_t* value) {
     esp_err_t ret;
     float sensitivity;
     icm42670_raw_value_t raw_value;
@@ -315,8 +307,7 @@ esp_err_t icm42670_get_gyro_value(icm42670_handle_t sensor, icm42670_value_t *va
     return ESP_OK;
 }
 
-esp_err_t icm42670_get_temp_value(icm42670_handle_t sensor, float *value)
-{
+esp_err_t icm42670_get_temp_value(icm42670_handle_t sensor, float* value) {
     esp_err_t ret;
     uint16_t raw_value;
 
@@ -333,11 +324,10 @@ esp_err_t icm42670_get_temp_value(icm42670_handle_t sensor, float *value)
 }
 
 /*******************************************************************************
-* Private functions
-*******************************************************************************/
+ * Private functions
+ *******************************************************************************/
 
-static esp_err_t icm42670_get_raw_value(icm42670_handle_t sensor, uint8_t reg, icm42670_raw_value_t *value)
-{
+esp_err_t icm42670_get_raw_value(icm42670_handle_t sensor, uint8_t reg, icm42670_raw_value_t* value) {
     esp_err_t ret = ESP_FAIL;
     uint8_t data[6];
 
@@ -357,34 +347,34 @@ static esp_err_t icm42670_get_raw_value(icm42670_handle_t sensor, uint8_t reg, i
     return ret;
 }
 
-static esp_err_t icm42670_write(icm42670_handle_t sensor, const uint8_t reg_start_addr, const uint8_t *data_buf, const uint8_t data_len)
-{
-    icm42670_dev_t *sens = (icm42670_dev_t *) sensor;
+esp_err_t icm42670_write(icm42670_handle_t sensor, const uint8_t reg_start_addr, const uint8_t* data_buf, const uint8_t data_len) {
+    icm42670_dev_t* sens = (icm42670_dev_t*)sensor;
     assert(sens);
 
     assert(data_len < 5);
-    uint8_t write_buff[5] = {reg_start_addr};
+    uint8_t write_buff[5] = { reg_start_addr };
     memcpy(&write_buff[1], data_buf, data_len);
     return i2c_master_transmit(sens->i2c_handle, write_buff, data_len + 1, -1);
 }
 
-static esp_err_t icm42670_read(icm42670_handle_t sensor, const uint8_t reg_start_addr, uint8_t *data_buf, const uint8_t data_len)
-{
-    uint8_t reg_buff[] = {reg_start_addr};
-    icm42670_dev_t *sens = (icm42670_dev_t *) sensor;
+esp_err_t icm42670_read(icm42670_handle_t sensor, const uint8_t reg_start_addr, uint8_t* data_buf, const uint8_t data_len) {
+    uint8_t reg_buff[] = { reg_start_addr };
+    icm42670_dev_t* sens = (icm42670_dev_t*)sensor;
     assert(sens);
 
     /* Write register number and read data */
     return i2c_master_transmit_receive(sens->i2c_handle, reg_buff, sizeof(reg_buff), data_buf, data_len, -1);
 }
 
-esp_err_t icm42670_complimentory_filter(icm42670_handle_t sensor, const icm42670_value_t *const acce_value,
-                                        const icm42670_value_t *const gyro_value, complimentary_angle_t *const complimentary_angle)
-{
+esp_err_t icm42670_complimentory_filter(
+    icm42670_handle_t sensor,
+    const icm42670_value_t* const acce_value,
+    const icm42670_value_t* const gyro_value,
+    complimentary_angle_t* const complimentary_angle) {
     float acce_angle[2];
     float gyro_angle[2];
     float gyro_rate[2];
-    icm42670_dev_t *sens = (icm42670_dev_t *) sensor;
+    icm42670_dev_t* sens = (icm42670_dev_t*)sensor;
 
     sens->counter++;
     if (sens->counter == 1) {
@@ -399,7 +389,7 @@ esp_err_t icm42670_complimentory_filter(icm42670_handle_t sensor, const icm42670
     struct timeval now, dt_t;
     gettimeofday(&now, NULL);
     timersub(&now, sens->timer, &dt_t);
-    sens->dt = (float) (dt_t.tv_sec) + (float)dt_t.tv_usec / 1000000;
+    sens->dt = (float)(dt_t.tv_sec) + (float)dt_t.tv_usec / 1000000;
     gettimeofday(sens->timer, NULL);
 
     acce_angle[0] = (atan2(acce_value->y, acce_value->z) * RAD_TO_DEG);
@@ -416,19 +406,15 @@ esp_err_t icm42670_complimentory_filter(icm42670_handle_t sensor, const icm42670
     return ESP_OK;
 }
 
-esp_err_t icm42670_read_register(icm42670_handle_t sensor, uint8_t reg, uint8_t *val)
-{
+esp_err_t icm42670_read_register(icm42670_handle_t sensor, uint8_t reg, uint8_t* val) {
     return icm42670_read(sensor, reg, val, 1);
 }
 
-esp_err_t icm42670_write_register(icm42670_handle_t sensor, uint8_t reg, uint8_t val)
-{
+esp_err_t icm42670_write_register(icm42670_handle_t sensor, uint8_t reg, uint8_t val) {
     return icm42670_write(sensor, reg, &val, 1);
 }
 
-esp_err_t icm42670_read_mreg_register(icm42670_handle_t sensor, uint8_t mreg, uint8_t reg,
-                                      uint8_t *val)
-{
+esp_err_t icm42670_read_mreg_register(icm42670_handle_t sensor, uint8_t mreg, uint8_t reg, uint8_t* val) {
     uint8_t blk_sel_r = 0;
     if (mreg == 1) {
         blk_sel_r = 0;
@@ -440,10 +426,8 @@ esp_err_t icm42670_read_mreg_register(icm42670_handle_t sensor, uint8_t mreg, ui
         ESP_LOGE(TAG, "Invalid MREG value %d", mreg);
         return ESP_ERR_INVALID_ARG;
     }
-    ESP_RETURN_ON_ERROR(icm42670_write(sensor, ICM42670_BLK_SEL_R, &blk_sel_r, 1), TAG,
-                        "Failed to set BLK_SEL_R");
-    ESP_RETURN_ON_ERROR(icm42670_write(sensor, ICM42670_MADDR_R, &reg, 1), TAG,
-                        "Failed to set MADDR_R");
+    ESP_RETURN_ON_ERROR(icm42670_write(sensor, ICM42670_BLK_SEL_R, &blk_sel_r, 1), TAG, "Failed to set BLK_SEL_R");
+    ESP_RETURN_ON_ERROR(icm42670_write(sensor, ICM42670_MADDR_R, &reg, 1), TAG, "Failed to set MADDR_R");
 
     esp_rom_delay_us(10);
 
@@ -454,9 +438,7 @@ esp_err_t icm42670_read_mreg_register(icm42670_handle_t sensor, uint8_t mreg, ui
     return ESP_OK;
 }
 
-esp_err_t icm42670_write_mreg_register(icm42670_handle_t sensor, uint8_t mreg, uint8_t reg,
-                                       uint8_t val)
-{
+esp_err_t icm42670_write_mreg_register(icm42670_handle_t sensor, uint8_t mreg, uint8_t reg, uint8_t val) {
     uint8_t blk_sel_w = 0;
     if (mreg == 1) {
         blk_sel_w = 0;
@@ -468,13 +450,72 @@ esp_err_t icm42670_write_mreg_register(icm42670_handle_t sensor, uint8_t mreg, u
         ESP_LOGE(TAG, "Invalid MREG value %d", mreg);
         return ESP_ERR_INVALID_ARG;
     }
-    ESP_RETURN_ON_ERROR(icm42670_write(sensor, ICM42670_BLK_SEL_W, &blk_sel_w, 1), TAG,
-                        "Failed to set BLK_SEL_W");
-    ESP_RETURN_ON_ERROR(icm42670_write(sensor, ICM42670_MADDR_W, &reg, 1), TAG,
-                        "Failed to set MADDR_W");
+    ESP_RETURN_ON_ERROR(icm42670_write(sensor, ICM42670_BLK_SEL_W, &blk_sel_w, 1), TAG, "Failed to set BLK_SEL_W");
+    ESP_RETURN_ON_ERROR(icm42670_write(sensor, ICM42670_MADDR_W, &reg, 1), TAG, "Failed to set MADDR_W");
     ESP_RETURN_ON_ERROR(icm42670_write(sensor, ICM42670_M_W, &val, 1), TAG, "Failed to set M_W");
 
     esp_rom_delay_us(10);
 
     return ESP_OK;
 }
+
+// Custom fonctions
+
+static icm42670_handle_t icm42670 = NULL;
+static i2c_master_bus_handle_t i2c_handle = NULL;
+
+esp_err_t i2c_bus_init(void) {
+    const i2c_master_bus_config_t bus_config = {
+        .i2c_port = I2C_MASTER_NUM,
+        .sda_io_num = I2C_MASTER_SDA_IO,
+        .scl_io_num = I2C_MASTER_SCL_IO,
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+    };
+
+    return i2c_new_master_bus(&bus_config, &i2c_handle);
+}
+
+esp_err_t i2c_sensor_icm42670_init(void) {
+    esp_err_t ret;
+
+    ESP_RETURN_ON_ERROR(i2c_bus_init(), TAG, "I2C bus init failed");
+
+    ret = icm42670_create(i2c_handle, ICM42670_I2C_ADDRESS, &icm42670);
+    ESP_RETURN_ON_ERROR(ret, TAG, "ICM42670 create failed");
+
+    ret = icm42670_acce_set_pwr(icm42670, ACCE_PWR_LOWNOISE);
+    ESP_RETURN_ON_ERROR(ret, TAG, "ICM42670 accelerometer power on failed");
+    ret = icm42670_gyro_set_pwr(icm42670, GYRO_PWR_LOWNOISE);
+    ESP_RETURN_ON_ERROR(ret, TAG, "ICM42670 gyroscope power on failed");
+
+    /* Configuration of the accelerometer and gyroscope */
+    const icm42670_cfg_t imu_cfg = {
+        .acce_fs = ACCE_FS_2G,
+        .acce_odr = ACCE_ODR_400HZ,
+        .gyro_fs = GYRO_FS_2000DPS,
+        .gyro_odr = GYRO_ODR_400HZ,
+    };
+    ret = icm42670_config(icm42670, &imu_cfg);
+    ESP_RETURN_ON_ERROR(ret, TAG, "ICM42670 config failed");
+
+    return ESP_OK;
+}
+
+esp_err_t i2c_sensor_icm42670_read_angles(complimentary_angle_t* values) {
+    esp_err_t ret;
+
+    icm42670_value_t acc, gyro;
+    complimentary_angle_t complimentary_angle;
+
+    ret = icm42670_get_acce_value(icm42670, &acc);
+    ESP_RETURN_ON_ERROR(ret, TAG, "ICM42670 read sensor values failed");
+    ret = icm42670_get_gyro_value(icm42670, &gyro);
+    ESP_RETURN_ON_ERROR(ret, TAG, "ICM42670 read sensor values failed");
+    ret = icm42670_complimentory_filter(icm42670, &acc, &gyro, &complimentary_angle);
+    ESP_RETURN_ON_ERROR(ret, TAG, "ICM42670 read angles failed");
+    values->roll = complimentary_angle.roll;
+    values->pitch = complimentary_angle.pitch;
+    return ESP_OK;
+}
+
+#endif  // LIB_ICM42670_ICM42670_C
