@@ -824,6 +824,9 @@ window.addEventListener('load', () => {
         liveMode = true;
         isPlottingCSV = false;
         
+        // Start HTTP polling for live data
+        startHttpPolling();
+        
         // Clear all graphs
         Plotly.react(chartDivRight, [
           { x: [], y: [], mode: 'lines', line: { color: colors[0], width: 2 }, name: 'Sensor 1' },
