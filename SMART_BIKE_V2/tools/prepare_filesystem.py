@@ -7,16 +7,15 @@ def prepare_filesystem(*args, **kwargs):
     """
     Script that:
     1. Copies all files from dashboard/ to data/
-    2. Compresses .js files in data/libs/ 
-    3. Keeps only .gz files in data/libs/ (removes uncompressed .js)
+    2. Compresses .html, .css, .js files throughout data/
+    3. Keeps only .gz files (removes uncompressed originals)
     
     This allows development in dashboard/ folder while uploading compressed
-    files to ESP32 SPIFFS.
+    files to ESP32 SPIFFS for faster page loads.
     """
     project_dir = env.get("PROJECT_DIR")
     dashboard_dir = os.path.join(project_dir, "dashboard")
     data_dir = os.path.join(project_dir, "data")
-    libs_dir = os.path.join(data_dir, "libs")
     
     print("\n[SMART BIKE] Preparing filesystem for ESP32 upload...")
     print(f"  Source: dashboard/")
@@ -35,12 +34,25 @@ def prepare_filesystem(*args, **kwargs):
         shutil.rmtree(models_dir)
         print("  ✓ Removed data/models (not uploaded)")
     
-    # Step 2: Compress .js files in data/libs/ and remove originals
-    if os.path.isdir(libs_dir):
-        print("\n[Step 2] Compressing library files...")
-        for filename in os.listdir(libs_dir):
-            if filename.endswith(".js"):
-                src_file = os.path.join(libs_dir, filename)
+    # Step 2: Compress compressible files (.html, .css, .js) throughout data/
+    print("\n[Step 2] Compressing web files...")
+    
+    compressed_count = 0
+    total_before = 0
+    total_after = 0
+    
+    # Extensions to compress
+    compressible_extensions = ('.html', '.css', '.js')
+    
+    # Walk through all files in data/ directory
+    for root, dirs, files in os.walk(data_dir):
+        # Skip images directory (binary files don't compress well)
+        if 'images' in dirs:
+            dirs.remove('images')
+        
+        for filename in files:
+            if filename.endswith(compressible_extensions):
+                src_file = os.path.join(root, filename)
                 gz_file = src_file + ".gz"
                 
                 # Get file sizes for reporting
@@ -55,23 +67,33 @@ def prepare_filesystem(*args, **kwargs):
                     after_size = os.path.getsize(gz_file)
                     ratio = round((1 - after_size / before_size) * 100, 1)
                     
-                    # Remove original .js file
+                    # Remove original file
                     os.remove(src_file)
                     
-                    print(f"  ✓ {filename}")
-                    print(f"    {before_size} → {after_size} bytes ({ratio}% smaller)")
+                    # Display relative path for clarity
+                    rel_path = os.path.relpath(src_file, data_dir)
+                    print(f"  ✓ {rel_path}")
+                    print(f"    {before_size:,} → {after_size:,} bytes ({ratio}% smaller)")
+                    
+                    compressed_count += 1
+                    total_before += before_size
+                    total_after += after_size
                     
                 except Exception as e:
                     print(f"  ✗ Error compressing {filename}: {e}")
+    
+    if compressed_count > 0:
+        overall_ratio = round((1 - total_after / total_before) * 100, 1)
+        print(f"\n  Summary: {compressed_count} files compressed")
+        print(f"  Total: {total_before:,} → {total_after:,} bytes ({overall_ratio}% reduction)")
     else:
-        print("\n[Step 2] No libs/ directory found - skipping compression")
+        print("  No compressible files found")
     
     # Step 3: Configure PlatformIO to use data/ folder
     env.Replace(PROJECTDATA_DIR=data_dir)
     
     print(f"\n[SMART BIKE] Filesystem ready for upload!")
-    print(f"  Dashboard files copied: data/")
-    print(f"  Libraries compressed: data/libs/*.gz")
+    print(f"  All .html, .css, .js files compressed with gzip")
     print(f"  PlatformIO will upload: data/\n")
 
 # Hook into the filesystem build process
