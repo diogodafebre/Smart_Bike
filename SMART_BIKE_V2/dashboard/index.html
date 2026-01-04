@@ -19,32 +19,30 @@
   <script defer src="index.js"></script>
 </head>
 <body>
-  <div class="container">
+  <div class="dashboard-container">
+    <!-- Topbar: sticky header -->
     <header class="topbar">
-      <div class="brand">
-        <img src="images/logo.png" alt="logo" />
-        <span>Smart Bike</span>
+      <div class="topbar-brand">
+        <img src="images/logo.png" alt="logo" class="brand-logo" />
+        <span class="brand-name">Smart Bike</span>
       </div>
       
-      <!-- Chart control buttons moved to header -->
-      <div class="chart-controls">
-        <div style="display: flex; align-items: center; gap: 12px;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-              <input type="checkbox" id="live_data_toggle" checked />
-              <span data-i18n="live_data">Live Data</span>
-            </label>
-          </div>
-          <div id="run_selector_container" style="display: none;">
-            <label for="run_selector" style="margin-right: 4px;" data-i18n="select_run">Select Run:</label>
-            <select id="run_selector" class="select" style="min-width: 200px;">
-              <option value="" data-i18n="no_run_selected">-- No run selected --</option>
-            </select>
-          </div>
-          <div style="color: var(--text-secondary); font-size: 0.9em;">
-            <span data-i18n="active_profile_label">Profile:</span>
-            <strong id="active_profile_name" style="color: var(--accent);">--</strong>
-          </div>
+      <div class="topbar-controls">
+        <div class="control-group">
+          <label class="control-label">
+            <input type="checkbox" id="live_data_toggle" checked />
+            <span data-i18n="live_data">Live Data</span>
+          </label>
+        </div>
+        <div id="run_selector_container" class="control-group" style="display: none;">
+          <label for="run_selector" data-i18n="select_run">Select Run:</label>
+          <select id="run_selector" class="select">
+            <option value="" data-i18n="no_run_selected">-- No run selected --</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <span data-i18n="active_profile_label">Profile:</span>
+          <strong id="active_profile_name" class="profile-name">--</strong>
         </div>
         <button id="btn_clear_chart" class="btn" data-i18n="clear_chart">Clear chart</button>
       </div>
@@ -59,47 +57,53 @@
           <button class="lang-btn" data-lang="fr">FR</button>
           <button class="lang-btn" data-lang="de">DE</button>
         </div>
-        <button id="btn_profile" class="btn" style="margin-left:8px" data-i18n="profile_settings">Profile / Settings</button>
+        <button id="btn_profile" class="btn btn-profile" data-i18n="profile_settings">Profile / Settings</button>
       </div>
     </header>
 
-    <main>
-      
-
-      <div id="dashboard_grid" class="quad-grid">
-        <div class="chart-card quad" id="handlebar_card">
-          <h2 data-i18n="handlebar_pressure">Handlebar Pressure Heatmap</h2>
+    <!-- Main dashboard grid -->
+    <main class="dashboard-main">
+      <div class="dashboard-grid">
+        <section class="dashboard-card" id="handlebar_card">
           <div class="heatmap-legend">
             <span id="legend_min" class="legend-label">0</span>
             <div class="legend-gradient"></div>
             <span id="legend_max" class="legend-label">0</span>
           </div>
-          <div id="handlebar_container" class="three-container"></div>
-        </div>
+          <div class="card-content">
+            <div id="handlebar_container" class="three-container"></div>
+          </div>
+        </section>
 
-        <div class="chart-card quad" id="three_card">
-          <h2 data-i18n="bike_3d">3D Bike</h2>
-          <div id="three_container" class="three-container"></div>
-        </div>
+        <section class="dashboard-card" id="three_card">
+          <div class="card-content">
+            <div id="three_container" class="three-container"></div>
+          </div>
+        </section>
 
-        <div class="chart-card quad" id="chart_pressure_left_card">
-          <h2 data-i18n="left_handle">Left Handle (Sensors 5-8)</h2>
-          <div id="pressure_chart_left" class="chart"></div>
-        </div>
+        <section class="dashboard-card" id="chart_pressure_left_card">
+          <h2 class="card-title" data-i18n="left_handle">Left</h2>
+          <div class="card-content">
+            <div id="pressure_chart_left" class="chart"></div>
+          </div>
+        </section>
 
-        <div class="chart-card quad" id="chart_pressure_right_card">
-          <h2 data-i18n="right_handle">Right Handle (Sensors 1-4)</h2>
-          <div id="pressure_chart_right" class="chart"></div>
-        </div>        
+        <section class="dashboard-card" id="chart_pressure_right_card">
+          <h2 class="card-title" data-i18n="right_handle">Right</h2>
+          <div class="card-content">
+            <div id="pressure_chart_right" class="chart"></div>
+          </div>
+        </section>
 
-        <div class="chart-card quad" id="corr_card" style="display: none;">
-          <h2 data-i18n="correlation_matrix">Correlation Matrix</h2>
-          <div id="corr_matrix" class="chart"></div>
-        </div>
+        <section class="dashboard-card" id="corr_card" style="display: none;">
+          <h2 class="card-title" data-i18n="correlation_matrix">Correlation Matrix</h2>
+          <div class="card-content">
+            <div id="corr_matrix" class="chart"></div>
+          </div>
+        </section>
       </div>
-
-      </main>
-    </div>
+    </main>
+  </div>
 
     <!-- Profile / Settings Modal -->
     <div id="profile_modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="profile_title">
