@@ -346,6 +346,12 @@
   box-shadow: inset 0 0 0 1px var(--border-light);
 }
 
+/* Make handlebar viewer transparent so card background shows through */
+#handlebar_container {
+  background: transparent !important;
+  box-shadow: none;
+}
+
 /* Heatmap legend positioning */
 #handlebar_container {
   position: relative;
