@@ -132,11 +132,22 @@
 
 					return new Promise( ( resolve, reject ) => {
 
-						worker._callbacks[ taskID ] = { resolve, reject };
+							worker._callbacks[ taskID ] = { resolve, reject };
 
-						worker.postMessage( { type: 'decode', id: taskID, taskConfig, buffer }, [ buffer ] );
+							// Sanitize taskConfig to ensure attributeTypes are strings, not constructors
+							const safeTaskConfig = Object.assign( {}, taskConfig );
+							safeTaskConfig.attributeTypes = Object.assign( {}, taskConfig.attributeTypes );
+							for ( const key in safeTaskConfig.attributeTypes ) {
+								const val = safeTaskConfig.attributeTypes[ key ];
+								if ( typeof val !== 'string' ) {
+									// Use constructor name or fallback
+									safeTaskConfig.attributeTypes[ key ] = ( val && val.name ) ? val.name : 'Float32Array';
+								}
+							}
 
-					} );
+							worker.postMessage( { type: 'decode', id: taskID, taskConfig: safeTaskConfig, buffer }, [ buffer ] );
+
+						} );
 
 				} )
 				.then( ( message ) => this._createGeometry( message.geometry ) );
@@ -296,7 +307,14 @@
 					worker._taskCosts = {};
 					worker._taskLoad = 0;
 
-					worker.postMessage( { type: 'init', decoderConfig: this.decoderConfig } );
+					// Ensure decoderConfig does not contain non-cloneable entries
+					const initConfig = Object.assign( {}, this.decoderConfig );
+					// Just in case any function was attached by external code
+					if ( typeof initConfig.onModuleLoaded === 'function' ) {
+						delete initConfig.onModuleLoaded;
+					}
+
+					worker.postMessage( { type: 'init', decoderConfig: initConfig } );
 
 					worker.onmessage = function ( e ) {
 

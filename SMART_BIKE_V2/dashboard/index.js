@@ -1585,7 +1585,7 @@ function initHandlebar() {
   handlebarScene.add(dir);
   
   // Load handlebar GLB model
-  loadHandlebarModel('MODELS/HBAR/hbar.glb.hz');
+  loadHandlebarModel('MODELS/HBAR/hbar.glb.gz');
   
   // Mouse controls for rotation and zoom
   container.addEventListener('mousedown', (e) => {
