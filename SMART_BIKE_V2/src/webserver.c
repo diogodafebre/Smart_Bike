@@ -226,11 +226,62 @@ static esp_err_t serveFile(httpd_req_t *req, const char* uri) {
   // 3) Try SD card (for model files and other assets)
   char sdpath[256];
   snprintf(sdpath, sizeof(sdpath), "/sdcard%s", uri);
+  ESP_LOGI(TAG, "Looking for SD card file: %s", sdpath);
   if (fileExists(sdpath)) {
     ESP_LOGI(TAG, "Serving from SD card: %s", sdpath);
-    return streamFile(req, sdpath, false);
+    bool isGz = endsWith(sdpath, ".gz");
+    return streamFile(req, sdpath, isGz);
+  } else {
+    ESP_LOGI(TAG, "SD card file NOT found: %s", sdpath);
+    
+    // List directory contents for debugging
+    char* lastSlash = strrchr(sdpath, '/');
+    if (lastSlash) {
+      char dirpath[256];
+      size_t dirlen = lastSlash - sdpath;
+      if (dirlen < sizeof(dirpath)) {
+        snprintf(dirpath, dirlen + 1, "%s", sdpath);
+        DIR* dir = opendir(dirpath);
+        if (dir) {
+          ESP_LOGI(TAG, "Contents of %s:", dirpath);
+          struct dirent* entry;
+          int count = 0;
+          while ((entry = readdir(dir)) != NULL && count < 20) {
+            ESP_LOGI(TAG, "  - %s (type: %d)", entry->d_name, entry->d_type);
+            count++;
+          }
+          if (count == 0) {
+            ESP_LOGI(TAG, "  (directory is empty)");
+          }
+          closedir(dir);
+        } else {
+          ESP_LOGI(TAG, "Could not open directory: %s", dirpath);
+        }
+      }
+    }
   }
 
+  // 4) Try SD card without .gz/.GZ suffix (fallback for uncompressed files)
+  if (endsWith(uri, ".gz") || endsWith(uri, ".GZ")) {
+    size_t uri_len = strlen(uri);
+    if (uri_len >= 3 && uri_len < 250) {  // Ensure uri is small enough to work with
+      char uncompressed[256];
+      // Remove .gz/.GZ suffix
+      snprintf(uncompressed, sizeof(uncompressed), "%.*s", (int)(uri_len - 3), uri);
+      char sdpath_uncomp[300];
+      snprintf(sdpath_uncomp, sizeof(sdpath_uncomp), "/sdcard%s", uncompressed);
+      ESP_LOGI(TAG, "Looking for uncompressed SD card file: %s", sdpath_uncomp);
+      if (fileExists(sdpath_uncomp)) {
+        ESP_LOGI(TAG, "Serving uncompressed from SD card: %s", sdpath_uncomp);
+        return streamFile(req, sdpath_uncomp, false);
+      } else {
+        ESP_LOGI(TAG, "Uncompressed SD card file NOT found: %s", sdpath_uncomp);
+      }
+    }
+  }
+
+  ESP_LOGE(TAG, "File not found: %s (tried SPIFFS: %s, SPIFFS.gz: %s, SD card: %s)", 
+           uri, filepath, gzpath, sdpath);
   return ESP_FAIL;
 }
 

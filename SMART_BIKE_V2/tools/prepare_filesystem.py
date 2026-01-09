@@ -42,11 +42,11 @@ def prepare_filesystem(*args, **kwargs):
     total_after = 0
     
     # Extensions to compress
-    compressible_extensions = ('.html', '.css', '.js')
+    compressible_extensions = ('.html', '.css', '.js', '.wasm')
     
     # Walk through all files in data/ directory
     for root, dirs, files in os.walk(data_dir):
-        # Skip images directory (binary files don't compress well)
+        # Skip images directory (binary files like PNG/JPG don't compress well)
         if 'images' in dirs:
             dirs.remove('images')
         
@@ -98,6 +98,8 @@ def prepare_filesystem(*args, **kwargs):
 
 # Hook into the filesystem build process
 env.AddPreAction("$BUILD_DIR/spiffs.bin", prepare_filesystem)
+# Hook into buildfs target (when running: pio run -t buildfs)
+env.AddPreAction("buildfs", prepare_filesystem)
 # Also hook into the uploadfs target to ensure data/ is created before upload
 env.AddPreAction("uploadfs", prepare_filesystem)
 

@@ -1254,7 +1254,7 @@ function initThree() {
   floor.receiveShadow = true;
   threeScene.add(floor);
   // Load default bike model
-  tryLoadBikeModel('MODELS/BIKE/BIKE.GLB');
+  tryLoadBikeModel('MODELS/BIKE/bike.glb.gz');
   // Resize handling
   window.addEventListener('resize', onThreeResize);
   // Mouse wheel zoom
@@ -1298,7 +1298,7 @@ function updateBikeRotation(roll, pitch) {
   oriPitch = pitch * (Math.PI / 180);
 }
 
-function tryLoadBikeModel(modelFileName = 'MODELS/BIKE/BIKE.GLB') {
+function tryLoadBikeModel(modelFileName = 'MODELS/BIKE/bike.glb.gz') {
   // When running from file://, show a helpful message but don't block
   // The model will work fine when served from ESP32's HTTP server
   if (location.protocol === 'file:') {
@@ -1313,6 +1313,19 @@ function tryLoadBikeModel(modelFileName = 'MODELS/BIKE/BIKE.GLB') {
   if (!loader) { 
     logToConsole('GLTFLoader not found.'); 
     return; 
+  }
+  
+  // Configure DRACOLoader for compressed models
+  const dracoLoader = (window.THREE && THREE.DRACOLoader) ? new THREE.DRACOLoader() : (window.DRACOLoader ? new DRACOLoader() : null);
+  if (dracoLoader) {
+    // Use local Draco decoder files from SD card
+    dracoLoader.setDecoderPath('/draco/');
+    dracoLoader.setDecoderConfig({ type: 'wasm' });
+    dracoLoader.preload();
+    loader.setDRACOLoader(dracoLoader);
+    logToConsole('DRACOLoader configured (offline mode)');
+  } else {
+    logToConsole('Warning: DRACOLoader not available, compressed models may not load');
   }
   
   // Load GLB model from SD card (full path should be provided)
@@ -1448,6 +1461,15 @@ function onLoadHandlebarFileChange(evt) {
       return; 
     }
     
+    // Configure DRACOLoader for compressed models
+    const dracoLoader = (window.THREE && THREE.DRACOLoader) ? new THREE.DRACOLoader() : (window.DRACOLoader ? new DRACOLoader() : null);
+    if (dracoLoader) {
+      dracoLoader.setDecoderPath('/draco/');
+      dracoLoader.setDecoderConfig({ type: 'wasm' });
+      dracoLoader.preload();
+      loader.setDRACOLoader(dracoLoader);
+    }
+    
     try {
       loader.parse(arrayBuffer, '', (gltf) => {
         const model = gltf.scene || (gltf.scenes && gltf.scenes[0]);
@@ -1564,7 +1586,7 @@ function initHandlebar() {
   handlebarScene.add(dir);
   
   // Load handlebar GLB model
-  loadHandlebarModel('MODELS/HBAR/HBAR.GLB');
+  loadHandlebarModel('MODELS/HBAR/hbar.glb.hz');
   
   // Mouse controls for rotation and zoom
   container.addEventListener('mousedown', (e) => {
@@ -1662,6 +1684,15 @@ function loadHandlebarModel(modelFileName) {
     logToConsole('GLTFLoader not found for handlebar.');
     createFallbackHandlebar();
     return;
+  }
+  
+  // Configure DRACOLoader for compressed models (offline mode)
+  const dracoLoader = (window.THREE && THREE.DRACOLoader) ? new THREE.DRACOLoader() : (window.DRACOLoader ? new DRACOLoader() : null);
+  if (dracoLoader) {
+    dracoLoader.setDecoderPath('/draco/');
+    dracoLoader.setDecoderConfig({ type: 'wasm' });
+    dracoLoader.preload();
+    loader.setDRACOLoader(dracoLoader);
   }
   
   const modelPath = modelFileName;
