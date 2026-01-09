@@ -845,6 +845,16 @@ static void init_wifi_ap(void) {
   ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
   ESP_ERROR_CHECK(esp_wifi_start());
 
+  // Augmenter la puissance WiFi au maximum
+  esp_err_t power_err = esp_wifi_set_max_tx_power(84);
+  if (power_err == ESP_OK) {
+    int8_t power;
+    esp_wifi_get_max_tx_power(&power);
+    ESP_LOGI(TAG, "WiFi TX power set to maximum: %d (20 dBm)", power);
+  } else {
+    ESP_LOGW(TAG, "Failed to set WiFi TX power: %s", esp_err_to_name(power_err));
+  }
+
   ESP_LOGI(TAG, "WiFi AP started. SSID: %s", AP_SSID);
   ESP_LOGI(TAG, "AP IP: 192.168.4.1");
 }
