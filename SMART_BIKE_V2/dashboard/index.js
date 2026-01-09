@@ -533,7 +533,7 @@ let maxPressure = -Infinity;
 function connect() {
   // For ESP32, use HTTP polling
   if (location.protocol === 'file:') {
-    logToConsole('Running from file:// — Using local file mode.');
+    console.log('Running from file:// — Using local file mode.');
     return;
   }
   
@@ -567,21 +567,21 @@ async function startHttpPolling() {
         } else {
           // No run active - show message once
           if (!noDataWarningShown) {
-            logToConsole('Waiting for run... Press button on ESP32 to start data collection.');
+            console.log('Waiting for run... Press button on ESP32 to start data collection.');
             noDataWarningShown = true;
           }
         }
       }
     } catch (e) {
       // Log errors to help debugging
-      logToConsole(`Polling error: ${e}`);
+      console.log(`Polling error: ${e}`);
     }
   };
   
   // Start polling immediately and then every 100ms
   fetchLiveData();
   pollingTimer = setInterval(fetchLiveData, 100);
-  logToConsole('HTTP polling started');
+  console.log('HTTP polling started');
 }
 
 // Stop HTTP polling
@@ -589,7 +589,7 @@ function stopHttpPolling() {
   if (pollingTimer) {
     clearInterval(pollingTimer);
     pollingTimer = null;
-    logToConsole('HTTP polling stopped');
+    console.log('HTTP polling stopped');
   }
 }
 
@@ -681,30 +681,6 @@ function handleSensorData(voltages, timestamp, roll, pitch) {
   if (latestPressureEl) latestPressureEl.textContent = `${avgVoltage.toFixed(2)} V`;
   if (meanPressureEl) meanPressureEl.textContent = `${(sumPressure / sampleCount).toFixed(2)} V`;
   if (maxPressureEl && isFinite(maxPressure)) maxPressureEl.textContent = `${maxPressure.toFixed(2)} V`;
-}
-
-function handlePressure(value, t) {
-  // Legacy function kept for compatibility with simulation/other features
-  if (!isFinite(value)) return;
-
-  if (t0 == null) t0 = performance.now();
-  const now = (typeof t === 'number') ? t : (performance.now() - t0);
-  const seconds = now / 1000;
-
-  if (latestPressureEl) latestPressureEl.textContent = `${value.toFixed(2)} N`;
-  sampleCount += 1;
-  if (sampleCountEl) sampleCountEl.textContent = `${sampleCount}`;
-  if (durationEl) durationEl.textContent = `${seconds.toFixed(1)}s`;
-
-  // Update stats
-  sumPressure += value;
-  if (value > maxPressure) maxPressure = value;
-  if (meanPressureEl) meanPressureEl.textContent = `${(sumPressure / sampleCount).toFixed(2)} N`;
-  if (maxPressureEl && isFinite(maxPressure)) maxPressureEl.textContent = `${maxPressure.toFixed(2)} N`;
-}
-
-function logToConsole(msg) {
-  try { console.log(msg); } catch (_) {}
 }
 
 // Buttons
@@ -920,9 +896,9 @@ async function listRuns() {
     const data = await resp.json();
     const names = Array.isArray(data) ? data : [];
     populateRuns(names);
-    logToConsole(`Runs: ${names.join(', ')}`);
+    console.log(`Runs: ${names.join(', ')}`);
   } catch (e) {
-    logToConsole(`Failed to list runs: ${e}`);
+    console.log(`Failed to list runs: ${e}`);
   }
 }
 
@@ -943,7 +919,7 @@ function populateRuns(names) {
 
 async function plotSelectedRun() {
   if (!runSelect || !runSelect.value) {
-    logToConsole('Select a run first.');
+    console.log('Select a run first.');
     return;
   }
   liveMode = false; if (liveModeChk) liveModeChk.checked = false;
@@ -963,7 +939,7 @@ async function plotSelectedRun() {
     plotRun(parsed.rows, x, y);
     renderCorrelation(parsed.rows, parsed.fields);
   } catch (e) {
-    logToConsole(`Failed to load run: ${e}`);
+    console.log(`Failed to load run: ${e}`);
   }
 }
 
@@ -1306,7 +1282,7 @@ function tryLoadBikeModel(modelFileName = 'MODELS/BIKE/bike.glb.gz') {
   
   const loader = (window.THREE && THREE.GLTFLoader) ? new THREE.GLTFLoader() : (window.GLTFLoader ? new GLTFLoader() : null);
   if (!loader) { 
-    logToConsole('GLTFLoader not found.'); 
+    console.log('GLTFLoader not found.'); 
     return; 
   }
   
@@ -1318,15 +1294,15 @@ function tryLoadBikeModel(modelFileName = 'MODELS/BIKE/bike.glb.gz') {
     dracoLoader.setDecoderConfig({ type: 'wasm' });
     dracoLoader.preload();
     loader.setDRACOLoader(dracoLoader);
-    logToConsole('DRACOLoader configured (offline mode)');
+    console.log('DRACOLoader configured (offline mode)');
   } else {
-    logToConsole('Warning: DRACOLoader not available, compressed models may not load');
+    console.log('Warning: DRACOLoader not available, compressed models may not load');
   }
   
   // Load GLB model from SD card (full path should be provided)
   const modelPath = modelFileName;
   const displayName = modelFileName.split('/').pop().replace('.glb', '').replace(/_/g, ' ');
-  logToConsole(`Loading 3D model: ${modelPath}`);
+  console.log(`Loading 3D model: ${modelPath}`);
   
   loader.load(
     modelPath,
@@ -1340,7 +1316,7 @@ function tryLoadBikeModel(modelFileName = 'MODELS/BIKE/bike.glb.gz') {
       
       bikeModel = gltf.scene || (gltf.scenes && gltf.scenes[0]);
       if (!bikeModel) { 
-        logToConsole('GLB has no scene'); 
+        console.log('GLB has no scene'); 
         ensureThreeOverlay('Error: Model has no scene data');
         return; 
       }
@@ -1395,14 +1371,14 @@ function tryLoadBikeModel(modelFileName = 'MODELS/BIKE/bike.glb.gz') {
         threeCamera.lookAt(center);
       }
       
-      logToConsole(`3D model loaded: ${displayName}`);
+      console.log(`3D model loaded: ${displayName}`);
     },
     (xhr) => {
       // No progress UI in production
     },
     (error) => {
       // If model missing, do nothing; rest of page continues
-      logToConsole(`Failed to load ${modelPath}: ${error && error.message ? error.message : error}`);
+      console.log(`Failed to load ${modelPath}: ${error && error.message ? error.message : error}`);
     }
   );
 }
@@ -1421,95 +1397,6 @@ function ensureThreeOverlay(text) {
   const prevPos = getComputedStyle(threeContainer).position;
   if (prevPos === 'static') threeContainer.style.position = 'relative';
   threeContainer.appendChild(msg);
-}
-
-function onLoadHandlebarFileChange(evt) {
-  const file = evt.target.files && evt.target.files[0];
-  if (!file) return;
-  
-  const isGLTF = file.name.toLowerCase().endsWith('.gltf');
-  const isGLB = file.name.toLowerCase().endsWith('.glb');
-  
-  if (!isGLTF && !isGLB) {
-    logToConsole('Only GLTF/GLB files are supported for handlebar');
-    return;
-  }
-  
-  logToConsole(`Loading handlebar: ${file.name}...`);
-  
-  const reader = new FileReader();
-  reader.onload = () => {
-    const arrayBuffer = reader.result;
-    const loader = (window.THREE && THREE.GLTFLoader) ? new THREE.GLTFLoader() : (window.GLTFLoader ? new GLTFLoader() : null);
-    if (!loader) { 
-      logToConsole('GLTFLoader not found.'); 
-      return; 
-    }
-    
-    // Configure DRACOLoader for compressed models
-    const dracoLoader = (window.THREE && THREE.DRACOLoader) ? new THREE.DRACOLoader() : (window.DRACOLoader ? new DRACOLoader() : null);
-    if (dracoLoader) {
-      dracoLoader.setDecoderPath('/draco/');
-      dracoLoader.setDecoderConfig({ type: 'wasm' });
-      dracoLoader.preload();
-      loader.setDRACOLoader(dracoLoader);
-    }
-    
-    try {
-      loader.parse(arrayBuffer, '', (gltf) => {
-        const model = gltf.scene || (gltf.scenes && gltf.scenes[0]);
-        if (!model) { 
-          logToConsole('Handlebar model has no scene'); 
-          return; 
-        }
-        
-        // Normalize model scale to standard size
-        const box = new THREE.Box3().setFromObject(model);
-        const size = box.getSize(new THREE.Vector3());
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const targetSize = 2.0; // Standard target size
-        const scale = targetSize / maxDim;
-        model.scale.multiplyScalar(scale);
-        
-        // Remove previous handlebar model
-        if (handlebarModel && handlebarScene) {
-          handlebarScene.remove(handlebarModel);
-        }
-        
-        handlebarModel = model;
-        handlebarScene.add(handlebarModel);
-        
-        // Frame the handlebar in view (resets zoom)
-        frameHandlebar(handlebarModel);
-        
-        // Initialize heatmap
-        updateHandlebarHeatmap();
-        
-        logToConsole(`Loaded handlebar model: ${file.name}`);
-      }, (err) => {
-        logToConsole(`Failed to parse handlebar model: ${err && err.message ? err.message : err}`);
-      });
-    } catch (e) {
-      logToConsole(`Handlebar model parse error: ${e}`);
-    } finally {
-      fileLoadHandlebar.value = '';
-    }
-  };
-  reader.onerror = () => {
-    logToConsole('Failed to read handlebar model file.');
-  };
-  reader.readAsArrayBuffer(file);
-}
-
-function handleOrientation(yawDeg, pitchDeg, rollDeg) {
-  if (yawDeg != null && isFinite(yawDeg)) oriYaw = toRad(yawDeg);
-  if (pitchDeg != null && isFinite(pitchDeg)) oriPitch = toRad(pitchDeg);
-  if (rollDeg != null && isFinite(rollDeg)) oriRoll = toRad(rollDeg);
-}
-
-function toRad(v) {
-  const av = Math.abs(v);
-  return (av <= 6.5) ? v : (v * Math.PI / 180);
 }
 
 function applyModelOrientation() {
@@ -1662,7 +1549,7 @@ function loadHandlebarModel(modelFileName) {
   
   const loader = (window.THREE && THREE.GLTFLoader) ? new THREE.GLTFLoader() : (window.GLTFLoader ? new GLTFLoader() : null);
   if (!loader) {
-    logToConsole('GLTFLoader not found for handlebar.');
+    console.log('GLTFLoader not found for handlebar.');
     return;
   }
   
@@ -1687,10 +1574,10 @@ function loadHandlebarModel(modelFileName) {
     // Initialize vertex colors for heatmap
     updateHandlebarHeatmap();
     
-    logToConsole(`Loaded handlebar model: ${modelFileName}`);
+    console.log(`Loaded handlebar model: ${modelFileName}`);
   }, undefined, (err) => {
     // If missing, do nothing; rest of page continues
-    logToConsole(`Failed to load handlebar model: ${err}`);
+    console.log(`Failed to load handlebar model: ${err}`);
   });
 }
 
@@ -2217,12 +2104,12 @@ function filterRunsByRunner() {
       const filtered = runner ? names.filter(n => n.toLowerCase().startsWith(runner.toLowerCase())) : names;
       populateRuns(filtered);
     })
-    .catch(e => logToConsole(`Filter failed: ${e}`));
+    .catch(e => console.log(`Filter failed: ${e}`));
 }
 
 async function renameSelectedRun() {
   if (!runSelect || !runSelect.value || !renameInput || !renameInput.value) {
-    logToConsole('Select a run and enter a new name.');
+    console.log('Select a run and enter a new name.');
     return;
   }
   const oldName = runSelect.value;
@@ -2234,11 +2121,11 @@ async function renameSelectedRun() {
       body: JSON.stringify({ from: oldName, to: newName })
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    logToConsole(`Renamed ${oldName} -> ${newName}`);
+    console.log(`Renamed ${oldName} -> ${newName}`);
     await listRuns();
     setSelected(runSelect, newName);
   } catch (e) {
-    logToConsole(`Rename failed: ${e}`);
+    console.log(`Rename failed: ${e}`);
   }
 }
 
@@ -2488,7 +2375,7 @@ async function loadAndPlotCSV(filename) {
       updateHandlebarHeatmap();
     });
     
-    logToConsole(`Loaded ${filename} with ${lines.length - 1} samples`);
+    console.log(`Loaded ${filename} with ${lines.length - 1} samples`);
     
     // Update KPIs if elements exist
     if (lines.length > 1) {
@@ -2498,34 +2385,6 @@ async function loadAndPlotCSV(filename) {
     }
   } catch (e) {
     alert('Failed to load CSV: ' + e.message);
-    logToConsole(`CSV load error: ${e}`);
+    console.log(`CSV load error: ${e}`);
   }
-}
-
-function onImportFileChange(evt) {
-  const file = evt.target.files && evt.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      const text = reader.result;
-      const parsed = parseDelimited(text);
-      currentRun = { name: file.name, ...parsed };
-      populateFieldSelectors(parsed.fields);
-      const x = pickDefaultX(parsed.fields);
-      const y = pickDefaultY(parsed.fields, x);
-      setSelected(xFieldSel, x); setSelected(yFieldSel, y);
-      plotRun(parsed.rows, x, y);
-      renderCorrelation(parsed.rows, parsed.fields);
-      liveMode = false; if (liveModeChk) liveModeChk.checked = false;
-      applyLayout('analysis'); setActiveNav('analysis');
-      logToConsole(`Imported ${file.name} (${parsed.rows.length} rows)`);
-    } catch (e) {
-      logToConsole(`Import failed: ${e}`);
-    } finally {
-      fileImport.value = '';
-    }
-  };
-  reader.onerror = () => logToConsole('Failed to read file.');
-  reader.readAsText(file);
 }
