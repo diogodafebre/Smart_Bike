@@ -759,10 +759,10 @@ function applyChartTheme() {
   Plotly.relayout(chartDivRight, update);
   Plotly.relayout(chartDivLeft, update);
   
-  // Update handlebar 3D scene background
-  if (handlebarScene) {
-    const isDark = document.body.classList.contains('dark-theme-variables');
-    handlebarScene.background = new THREE.Color(isDark ? 0x1a1a1a : 0xf0f0f0);
+  // Keep handlebar 3D transparent so card background shows through
+  if (handlebarScene && handlebarRenderer) {
+    handlebarScene.background = null;
+    handlebarRenderer.setClearColor(0x000000, 0);
   }
 }
 
@@ -1560,11 +1560,9 @@ function initHandlebar() {
   const container = document.getElementById('handlebar_container');
   if (!container) return;
   
-  // Scene setup
+  // Scene setup with transparent background to let card show through
   handlebarScene = new THREE.Scene();
-  // Set background based on current theme
-  const isDark = document.body.classList.contains('dark-theme-variables');
-  handlebarScene.background = new THREE.Color(isDark ? 0x1a1a1a : 0xf0f0f0);
+  handlebarScene.background = null;
   
   // Camera
   const w = Math.max(1, container.clientWidth);
@@ -1573,8 +1571,9 @@ function initHandlebar() {
   handlebarCamera.position.set(0, 0.5, 0.4);
   handlebarCamera.lookAt(0, 0, 0);
   
-  // Renderer
-  handlebarRenderer = new THREE.WebGLRenderer({ antialias: true });
+  // Renderer with alpha so the card background is visible
+  handlebarRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  handlebarRenderer.setClearColor(0x000000, 0);
   handlebarRenderer.setSize(w, h);
   container.appendChild(handlebarRenderer.domElement);
   
@@ -1993,8 +1992,8 @@ const I18N = {
     import_run: 'Import run (CSV/TSV)',
     x_axis_time: 'Time [s]',
     y_axis_voltage: 'Voltage [V]',
-    right_handle: 'Right Handle (Sensors 1-4)',
-    left_handle: 'Left Handle (Sensors 5-8)',
+    right_handle: 'Right',
+    left_handle: 'Left',
     // New
     layout: 'Layout',
     layout_live: 'Live',
@@ -2070,8 +2069,8 @@ const I18N = {
     import_run: 'Importer un run (CSV/TSV)',
     x_axis_time: 'Temps [s]',
     y_axis_voltage: 'Tension [V]',
-    right_handle: 'Guidon Droit (Capteurs 1-4)',
-    left_handle: 'Guidon Gauche (Capteurs 5-8)',
+    right_handle: 'Droite',
+    left_handle: 'Gauche',
     layout: 'Disposition',
     layout_live: 'Live',
     layout_analysis: 'Analyse',
@@ -2146,8 +2145,8 @@ const I18N = {
     import_run: 'Lauf importieren (CSV/TSV)',
     x_axis_time: 'Zeit [s]',
     y_axis_voltage: 'Spannung [V]',
-    right_handle: 'Rechter Lenker (Sensoren 1-4)',
-    left_handle: 'Linker Lenker (Sensoren 5-8)',
+    right_handle: 'Rechts',
+    left_handle: 'Links',
     layout: 'Layout',
     layout_live: 'Live',
     layout_analysis: 'Analyse',
