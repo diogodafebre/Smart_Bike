@@ -845,7 +845,7 @@ static void init_wifi_ap(void) {
   ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
   ESP_ERROR_CHECK(esp_wifi_start());
 
-  // Augmenter la puissance WiFi au maximum
+  // Set maximum TX power
   esp_err_t power_err = esp_wifi_set_max_tx_power(84);
   if (power_err == ESP_OK) {
     int8_t power;
