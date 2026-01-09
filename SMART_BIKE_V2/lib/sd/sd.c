@@ -55,7 +55,7 @@ uint32_t sd_find_next_run_index() {
     struct stat st;
 
     while (1) {
-        snprintf(path, sizeof(path), MOUNT_POINT "/run_%03ld.txt", index);
+        snprintf(path, sizeof(path), MOUNT_POINT "/run_%03ld.csv", index);
         if (stat(path, &st) != 0) {
             return index;
         }
