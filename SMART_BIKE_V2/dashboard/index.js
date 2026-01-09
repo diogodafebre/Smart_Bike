@@ -1299,13 +1299,8 @@ function updateBikeRotation(roll, pitch) {
 }
 
 function tryLoadBikeModel(modelFileName = 'MODELS/BIKE/bike.glb.gz') {
-  // When running from file://, show a helpful message but don't block
-  // The model will work fine when served from ESP32's HTTP server
+  // In production on device; if not available, just render the rest of the page
   if (location.protocol === 'file:') {
-    logToConsole('Running from file:// - 3D model loading disabled. When served from ESP32 HTTP server, models will load automatically.');
-    if (threeContainer) {
-      ensureThreeOverlay('3D model will load when served from ESP32 HTTP server. For local testing, click "Load 3D model" button to select a GLB file.');
-    }
     return;
   }
   
@@ -1331,7 +1326,6 @@ function tryLoadBikeModel(modelFileName = 'MODELS/BIKE/bike.glb.gz') {
   // Load GLB model from SD card (full path should be provided)
   const modelPath = modelFileName;
   const displayName = modelFileName.split('/').pop().replace('.glb', '').replace(/_/g, ' ');
-  ensureThreeOverlay(`Loading ${displayName} model...`);
   logToConsole(`Loading 3D model: ${modelPath}`);
   
   loader.load(
@@ -1402,22 +1396,13 @@ function tryLoadBikeModel(modelFileName = 'MODELS/BIKE/bike.glb.gz') {
       }
       
       logToConsole(`3D model loaded: ${displayName}`);
-      ensureThreeOverlay(`${displayName} loaded successfully`);
-      setTimeout(() => {
-        const overlay = threeContainer.querySelector('div');
-        if (overlay) overlay.remove();
-      }, 2000);
     },
     (xhr) => {
-      // Progress callback
-      if (xhr.lengthComputable) {
-        const percent = Math.round((xhr.loaded / xhr.total) * 100);
-        ensureThreeOverlay(`Loading ${displayName}: ${percent}%`);
-      }
+      // No progress UI in production
     },
     (error) => {
+      // If model missing, do nothing; rest of page continues
       logToConsole(`Failed to load ${modelPath}: ${error && error.message ? error.message : error}`);
-      ensureThreeOverlay(`Failed to load ${displayName} model. Check console for details.`);
     }
   );
 }
@@ -1670,18 +1655,14 @@ function updateHandlebarCamera() {
 }
 
 function loadHandlebarModel(modelFileName) {
-  // When running from file://, show a helpful message but don't block
+  // In production: if not available, just render rest of page
   if (location.protocol === 'file:') {
-    logToConsole('Running from file:// - handlebar 3D model loading disabled. Will work when served from ESP32 HTTP server.');
-    // Create a simple fallback cylinder for local testing
-    createFallbackHandlebar();
     return;
   }
   
   const loader = (window.THREE && THREE.GLTFLoader) ? new THREE.GLTFLoader() : (window.GLTFLoader ? new GLTFLoader() : null);
   if (!loader) {
     logToConsole('GLTFLoader not found for handlebar.');
-    createFallbackHandlebar();
     return;
   }
   
@@ -1708,30 +1689,11 @@ function loadHandlebarModel(modelFileName) {
     
     logToConsole(`Loaded handlebar model: ${modelFileName}`);
   }, undefined, (err) => {
+    // If missing, do nothing; rest of page continues
     logToConsole(`Failed to load handlebar model: ${err}`);
-    createFallbackHandlebar();
   });
 }
 
-function createFallbackHandlebar() {
-  // Create a simple cylinder as fallback when GLB can't be loaded
-  const geometry = new THREE.CylinderGeometry(0.15, 0.15, 2, 32, 8, false);
-  const material = new THREE.MeshStandardMaterial({ 
-    color: 0x808080,
-    vertexColors: true 
-  });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.rotation.z = Math.PI / 2; // Horizontal
-  
-  if (handlebarModel) handlebarScene.remove(handlebarModel);
-  handlebarModel = mesh;
-  handlebarScene.add(handlebarModel);
-  
-  // Initialize vertex colors for heatmap
-  updateHandlebarHeatmap();
-  
-  logToConsole('Using fallback cylinder handlebar for testing');
-}
 
 function frameHandlebar(object3D) {
   if (!handlebarCamera) return;
