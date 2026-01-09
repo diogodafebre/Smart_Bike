@@ -300,7 +300,7 @@ esp_err_t cpt_task_once(void) {
     }
 
     // transaction state machine
-    ESP_LOGD(TAG, "Capture task once - state: %d", cpt_state);
+    //ESP_LOGD(TAG, "Capture task once - state: %d", cpt_state);
     switch (cpt_state) {
         case CPT_STATE_IDLE:
             if (cpt_started) cpt_state = CPT_STATE_STARTING;
@@ -328,7 +328,7 @@ esp_err_t cpt_task_once(void) {
     }
 
     if (cpt_state != cpt_old_state) {
-        ESP_LOGI(TAG, "Capture state changed: %d -> %d", cpt_old_state, cpt_state);
+        //ESP_LOGI(TAG, "Capture state changed: %d -> %d", cpt_old_state, cpt_state);
 
         // Entry actions
         switch (cpt_state) {
@@ -341,7 +341,7 @@ esp_err_t cpt_task_once(void) {
             case CPT_STATE_RUNNING:
                 break;
             case CPT_STATE_WRITE_SD:
-                ESP_LOGI(TAG, "Capture writing to SD...");
+                //ESP_LOGI(TAG, "Capture writing to SD...");
                 ESP_RETURN_ON_ERROR(cpt_task_write_sd(cpt_file_path), TAG, "Capture write SD task failed");
                 break;
             case CPT_STATE_STOPPING:
