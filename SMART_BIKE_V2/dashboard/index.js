@@ -725,6 +725,10 @@ async function startReplay() {
       { x: [], y: [], mode: 'lines', line: { color: colors[3], width: 2 }, name: 'Sensor 8' }
     ], chartLayout, chartConfig);
     
+    // Reset axis ranges for replay
+    Plotly.relayout(chartDivRight, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+    Plotly.relayout(chartDivLeft, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+    
     // Reset state
     t0 = null;
     sampleCount = 0;
@@ -933,6 +937,10 @@ if (clearChartBtn) clearChartBtn.addEventListener('click', () => {
     { x: [], y: [], mode: 'lines', line: { color: colors[3], width: 2 }, name: 'Sensor 8' }
   ], chartLayout, chartConfig);
   
+  // Reset axis ranges
+  Plotly.relayout(chartDivRight, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+  Plotly.relayout(chartDivLeft, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+  
   t0 = null; sampleCount = 0;
   if (latestPressureEl) latestPressureEl.textContent = '0 N';
   if (sampleCountEl) sampleCountEl.textContent = '0';
@@ -1086,6 +1094,10 @@ window.addEventListener('load', () => {
           { x: [], y: [], mode: 'lines', line: { color: colors[2], width: 2 }, name: 'Sensor 7' },
           { x: [], y: [], mode: 'lines', line: { color: colors[3], width: 2 }, name: 'Sensor 8' }
         ], chartLayout, chartConfig);
+        
+        // Reset axis ranges when switching to live mode
+        Plotly.relayout(chartDivRight, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+        Plotly.relayout(chartDivLeft, { 'xaxis.autorange': true, 'yaxis.autorange': true });
         
         // Reset sensor pressures and history
         sensorPressures = [0, 0, 0, 0, 0, 0, 0, 0];
