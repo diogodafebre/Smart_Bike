@@ -1153,6 +1153,30 @@ body:not(.dark-theme-variables) .modal {
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.15);
 }
 
+/* Graph mode radio buttons - same styling as theme radio */
+.graph-mode-radio {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border-color);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 200ms ease;
+  flex-shrink: 0;
+}
+
+.graph-mode-radio:hover {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
+}
+
+.graph-mode-radio:checked {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.15);
+}
+
 /* Language buttons in settings */
 .lang-btn-settings {
   padding: var(--spacing-sm) var(--spacing-md);

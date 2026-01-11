@@ -569,6 +569,10 @@ Plotly.newPlot(chartDivLeft, [
 let sumPressure = 0;
 let maxPressure = -Infinity;
 
+// Graph display mode settings
+let graphMode = 'full'; // 'full' or 'oscilloscope'
+let oscilloscopeTimeWindow = 30; // seconds
+
 function connect() {
   // For ESP32, use HTTP polling
   if (location.protocol === 'file:') {
@@ -757,9 +761,8 @@ async function startReplay() {
       { x: [], y: [], mode: 'lines', line: { color: colors[3], width: 2 }, name: 'Sensor 8' }
     ], chartLayout, chartConfig);
     
-    // Reset axis ranges for replay
-    Plotly.relayout(chartDivRight, { 'xaxis.autorange': true, 'yaxis.autorange': true });
-    Plotly.relayout(chartDivLeft, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+    // Don't reset to autorange - we'll use oscilloscope mode if enabled
+    // For now just keep the current range from chartLayout
     
     // Reset state
     t0 = null;
@@ -830,7 +833,16 @@ async function startReplay() {
   }
 }
 
-
+// Helper function to calculate x-axis range based on graph mode
+function getXAxisRange(currentTime) {
+  if (graphMode === 'oscilloscope') {
+    const windowStart = Math.max(0, currentTime - oscilloscopeTimeWindow);
+    return [windowStart, currentTime];
+  } else {
+    // Full view mode: show all data starting from 0
+    return [-1, Math.max(30, currentTime + 5)];
+  }
+}
 
 // Handle incoming sensor data from ESP32
 function handleSensorData(voltages, timestamp, roll, pitch) {
@@ -907,13 +919,13 @@ function handleSensorData(voltages, timestamp, roll, pitch) {
   Plotly.extendTraces(chartDivRight, { x: xDataRight, y: yDataRight }, [0, 1, 2, 3]);
   Plotly.extendTraces(chartDivLeft, { x: xDataLeft, y: yDataLeft }, [0, 1, 2, 3]);
   
-  // Update x-axis range to show rolling window
-  const windowStart = Math.max(0, seconds - LIVE_WINDOW_SECONDS);
+  // Update x-axis range based on graph mode
+  const [axisStart, axisEnd] = getXAxisRange(seconds);
   Plotly.relayout(chartDivRight, {
-    'xaxis.range': [windowStart, seconds]
+    'xaxis.range': [axisStart, axisEnd]
   });
   Plotly.relayout(chartDivLeft, {
-    'xaxis.range': [windowStart, seconds]
+    'xaxis.range': [axisStart, axisEnd]
   });
   
   // Trim old data points to prevent memory buildup (keep last 10 minutes of data)
@@ -1086,9 +1098,90 @@ themeRadios.forEach(radio => {
   });
 });
 
+// Graph mode functions
+function loadGraphModePreference() {
+  const savedMode = localStorage.getItem('graphMode');
+  const savedWindow = localStorage.getItem('oscilloscopeWindow');
+  
+  if (savedMode === 'oscilloscope') {
+    graphMode = 'oscilloscope';
+  } else {
+    graphMode = 'full';
+  }
+  
+  if (savedWindow) {
+    oscilloscopeTimeWindow = parseInt(savedWindow);
+  }
+  
+  updateGraphModeUI();
+}
+
+function saveGraphModePreference() {
+  localStorage.setItem('graphMode', graphMode);
+  localStorage.setItem('oscilloscopeWindow', oscilloscopeTimeWindow.toString());
+}
+
+function setGraphMode(mode) {
+  graphMode = mode;
+  const windowRow = document.getElementById('oscilloscope_window_row');
+  if (mode === 'oscilloscope') {
+    windowRow.style.display = 'block';
+  } else {
+    windowRow.style.display = 'none';
+  }
+  saveGraphModePreference();
+  
+  // Re-plot current run if one is loaded
+  if (currentRun && currentRun.rows) {
+    replotCurrent();
+  }
+}
+
+function updateGraphModeUI() {
+  const fullRadio = document.getElementById('graph_mode_full');
+  const oscRadio = document.getElementById('graph_mode_oscilloscope');
+  const windowInput = document.getElementById('oscilloscope_time');
+  const windowRow = document.getElementById('oscilloscope_window_row');
+  
+  if (fullRadio && oscRadio) {
+    fullRadio.checked = graphMode === 'full';
+    oscRadio.checked = graphMode === 'oscilloscope';
+  }
+  
+  if (windowInput) {
+    windowInput.value = oscilloscopeTimeWindow;
+  }
+  
+  if (windowRow) {
+    windowRow.style.display = graphMode === 'oscilloscope' ? 'block' : 'none';
+  }
+}
+
 // Init
 window.addEventListener('load', () => {
+  // Attach graph mode radio handlers
+  const graphModeRadios = document.querySelectorAll('.graph-mode-radio');
+  graphModeRadios.forEach(radio => {
+    radio.addEventListener('change', () => {
+      if (radio.checked) setGraphMode(radio.value);
+    });
+  });
+  
+  // Attach oscilloscope time window input handler
+  const oscilloscopeInput = document.getElementById('oscilloscope_time');
+  if (oscilloscopeInput) {
+    oscilloscopeInput.addEventListener('change', (e) => {
+      oscilloscopeTimeWindow = parseInt(e.target.value) || 30;
+      saveGraphModePreference();
+      // Re-plot current run if one is loaded
+      if (currentRun && currentRun.rows) {
+        replotCurrent();
+      }
+    });
+  }
+  
   loadThemePreference();
+  loadGraphModePreference();
   connect();
   updateRunButton();
   if (btnReplayCSV) btnReplayCSV.style.display = 'none';
@@ -1377,6 +1470,19 @@ function plotRun(rows, xField, yField, y2Field = '', dualAxis = false) {
   const traces = [{ x, y, mode: 'lines', line: { color: '#2196f3', width: 2 }, name: yField }];
   if (y2Field) traces.push({ x, y: y2, mode: 'lines', line: { color: '#ff9800', width: 2 }, name: y2Field, yaxis: dualAxis ? 'y2' : 'y' });
   const layout = { ...chartLayout, xaxis: { title: xField }, yaxis: { title: yField }, shapes };
+  
+  // Apply oscilloscope mode if enabled
+  // For imported runs: show from 0 to oscilloscopeTimeWindow
+  if (graphMode === 'oscilloscope' && x.length > 0) {
+    const minX = Math.min(...x.filter(isFinite));
+    layout.xaxis.range = [minX, minX + oscilloscopeTimeWindow];
+    layout.xaxis.autorange = false;
+  } else if (x.length > 0) {
+    // Full view mode
+    layout.xaxis.range = [Math.min(...x.filter(isFinite)) - 1, Math.max(...x.filter(isFinite)) + 1];
+    layout.xaxis.autorange = false;
+  }
+  
   if (y2Field && dualAxis) {
     layout.yaxis2 = { title: y2Field, overlaying: 'y', side: 'right' };
   }
@@ -2267,6 +2373,10 @@ const I18N = {
     light_mode: 'Light Mode',
     dark_mode: 'Dark Mode',
     language_label: 'Language',
+    graph_display: 'Graph Display',
+    full_view: 'Full View',
+    oscilloscope_mode: 'Oscilloscope Mode',
+    time_window: 'Time Window (s)',
     move_to_unsorted: '← Move to unsorted',
     active_profile_label: 'Profile:',
   },
@@ -2354,6 +2464,10 @@ const I18N = {
     light_mode: 'Mode clair',
     dark_mode: 'Mode sombre',
     language_label: 'Langue',
+    graph_display: 'Affichage du graphique',
+    full_view: 'Vue complète',
+    oscilloscope_mode: 'Mode oscilloscope',
+    time_window: 'Fenêtre de temps (s)',
     move_to_unsorted: '← Déplacer vers non trié',
     active_profile_label: 'Profil :',
   },
@@ -2441,6 +2555,10 @@ const I18N = {
     light_mode: 'Heller Modus',
     dark_mode: 'Dunkler Modus',
     language_label: 'Sprache',
+    graph_display: 'Graphik-Anzeige',
+    full_view: 'Vollansicht',
+    oscilloscope_mode: 'Oszilloskop-Modus',
+    time_window: 'Zeitfenster (s)',
     move_to_unsorted: '← In ungesmessene verschieben',
     active_profile_label: 'Profil:',
   }

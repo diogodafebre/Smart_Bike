@@ -169,6 +169,22 @@
               <button class="lang-btn-settings" data-lang="de">Deutsch</button>
             </div>
           </div>
+
+          <div class="settings-section">
+            <h4 data-i18n="graph_display">Graph Display</h4>
+            <div class="settings-row">
+              <label data-i18n="full_view">Full View</label>
+              <input type="radio" name="graph_mode" value="full" id="graph_mode_full" class="graph-mode-radio" checked />
+            </div>
+            <div class="settings-row">
+              <label data-i18n="oscilloscope_mode">Oscilloscope Mode</label>
+              <input type="radio" name="graph_mode" value="oscilloscope" id="graph_mode_oscilloscope" class="graph-mode-radio" />
+            </div>
+            <div class="settings-row" id="oscilloscope_window_row" style="display:none;margin-left:24px;">
+              <label for="oscilloscope_time" data-i18n="time_window">Time Window (s)</label>
+              <input type="number" id="oscilloscope_time" min="5" max="300" value="30" class="select" style="width:80px;margin-left:12px" />
+            </div>
+          </div>
         </div>
       </div>
     </div>
