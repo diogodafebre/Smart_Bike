@@ -8,6 +8,8 @@ let currentRun = null; // { name, rows, fields }
 let pollingTimer = null;  // For HTTP polling
 const LIVE_WINDOW_SECONDS = 60;  // 60-second rolling window for live data
 let isPlottingCSV = false;  // Track if we're plotting CSV data vs live data
+let runActive = false; // Track if device is currently recording
+let currentLang = 'en'; // Active language key
 
 // UI refs
 const themeToggler = document.querySelector(".theme-toggler");
@@ -61,6 +63,7 @@ const navLinks = document.querySelectorAll('.nav-link');
 // Run selector
 const runSelector = document.getElementById('run_selector');
 const activeProfileNameEl = document.getElementById('active_profile_name');
+const btnRunControl = document.getElementById('btn_run_control');
 
 // Profile / Settings UI
 const btnProfile = document.getElementById('btn_profile');
@@ -558,6 +561,8 @@ async function startHttpPolling() {
       // data = { timestamp: <ms>, active: <bool>, run_id: <int>, roll: <deg>, pitch: <deg>, sensors: [v1,v2,...v8] }
       
       if (data.sensors && data.sensors.length === 8) {
+        runActive = !!data.active;
+        updateRunButton();
         if (data.active) {
           // Run is active, display data normally
           const roll = data.roll !== undefined ? data.roll : 0;
@@ -591,6 +596,13 @@ function stopHttpPolling() {
     pollingTimer = null;
     console.log('HTTP polling stopped');
   }
+}
+
+function updateRunButton() {
+  if (!btnRunControl) return;
+  btnRunControl.style.display = liveMode ? '' : 'none';
+  btnRunControl.textContent = runActive ? t('stop_run') : t('start_run');
+  btnRunControl.disabled = !liveMode;
 }
 
 // Handle incoming sensor data from ESP32
@@ -775,6 +787,7 @@ themeToggler.addEventListener('click', () => {
 window.addEventListener('load', () => {
   loadThemePreference();
   connect();
+  updateRunButton();
   if (btnRefreshRuns) btnRefreshRuns.addEventListener('click', listRuns);
   if (btnLoadRun) btnLoadRun.addEventListener('click', plotSelectedRun);
   if (liveModeChk) liveModeChk.addEventListener('change', () => { 
@@ -783,6 +796,27 @@ window.addEventListener('load', () => {
       startHttpPolling();
     } else {
       stopHttpPolling();
+    }
+    updateRunButton();
+  });
+  if (btnRunControl) btnRunControl.addEventListener('click', async () => {
+    if (!liveMode) return;
+    btnRunControl.disabled = true;
+    try {
+      const endpoint = runActive ? '/api/run/stop' : '/api/run/start';
+      const resp = await fetch(endpoint, { method: 'POST' });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json().catch(() => ({}));
+      if (typeof data.active === 'boolean') {
+        runActive = data.active;
+      } else {
+        runActive = !runActive;
+      }
+    } catch (e) {
+      console.error('Run control failed:', e);
+    } finally {
+      btnRunControl.disabled = false;
+      updateRunButton();
     }
   });
   langButtons.forEach(btn => btn.addEventListener('click', () => setLanguage(btn.dataset.lang)));
@@ -806,6 +840,7 @@ window.addEventListener('load', () => {
         // Switch to live mode
         liveMode = true;
         isPlottingCSV = false;
+        updateRunButton();
         
         // Start HTTP polling for live data
         startHttpPolling();
@@ -844,6 +879,7 @@ window.addEventListener('load', () => {
       } else {
         // Switch to historical mode - reset dropdown to no selection
         liveMode = false;
+        updateRunButton();
         if (runSelector) {
           runSelector.value = '';
           highlightSelectedRun('');
@@ -1860,6 +1896,8 @@ const I18N = {
     simulation_off: 'Simulation: OFF',
     clear_chart: 'Clear chart',
     clear_console: 'Clear console',
+    start_run: 'Start run',
+    stop_run: 'Stop run',
     filters: 'Filters',
     apply: 'Apply',
     bike_3d: '3D Bike',
@@ -1936,6 +1974,8 @@ const I18N = {
     simulation_off: 'Simulation : OFF',
     clear_chart: 'Effacer le graphe',
     clear_console: 'Effacer la console',
+    start_run: 'Démarrer le run',
+    stop_run: 'Arrêter le run',
     filters: 'Filtres',
     apply: 'Appliquer',
     bike_3d: 'Vélo 3D',
@@ -2012,6 +2052,8 @@ const I18N = {
     simulation_off: 'Simulation: AUS',
     clear_chart: 'Diagramm leeren',
     clear_console: 'Konsole leeren',
+    start_run: 'Lauf starten',
+    stop_run: 'Lauf stoppen',
     filters: 'Filter',
     apply: 'Übernehmen',
     bike_3d: '3D-Fahrrad',
@@ -2046,8 +2088,14 @@ const I18N = {
   }
 };
 
+function t(key) {
+  const dict = I18N[currentLang] || I18N.en;
+  return dict[key] || I18N.en[key] || key;
+}
+
 function setLanguage(lang) {
   if (!I18N[lang]) lang = 'en';
+  currentLang = lang;
   localStorage.setItem('lang', lang);
   applyTranslations(lang);
   langButtons.forEach(btn => {
@@ -2092,6 +2140,8 @@ function applyTranslations(lang) {
     'xaxis.title': xAxisLabel,
     'yaxis.title': yAxisLabel
   });
+
+  updateRunButton();
 }
 
 function filterRunsByRunner() {

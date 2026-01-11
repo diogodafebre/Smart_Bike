@@ -384,6 +384,24 @@ static esp_err_t api_live_handler(httpd_req_t *req) {
   return ESP_OK;
 }
 
+// API: POST /api/run/start - start recording
+static esp_err_t api_run_start_handler(httpd_req_t *req) {
+  cpt_start();
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_send(req, "{\"ok\":true,\"active\":true}", HTTPD_RESP_USE_STRLEN);
+  return ESP_OK;
+}
+
+// API: POST /api/run/stop - stop recording
+static esp_err_t api_run_stop_handler(httpd_req_t *req) {
+  cpt_stop();
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_send(req, "{\"ok\":true,\"active\":false}", HTTPD_RESP_USE_STRLEN);
+  return ESP_OK;
+}
+
 // API endpoint: /api/runs - List RUN files from SD card
 static esp_err_t api_runs_handler(httpd_req_t *req) {
   DIR* dir = opendir("/sdcard");
@@ -863,7 +881,7 @@ static void init_wifi_ap(void) {
 static httpd_handle_t start_webserver(void) {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.uri_match_fn = httpd_uri_match_wildcard;
-  config.max_uri_handlers = 16;  // Increased for API endpoints
+  config.max_uri_handlers = 20;  // Increased for API endpoints
   config.max_open_sockets = 7;  // Allow more concurrent connections
   config.lru_purge_enable = true;  // Enable LRU purge for connection management
   config.stack_size = 8192;  // Increase stack size for handlers
@@ -874,6 +892,22 @@ static httpd_handle_t start_webserver(void) {
   
   if (httpd_start(&server, &config) == ESP_OK) {
     // API endpoints first (more specific routes)
+    httpd_uri_t api_run_start_uri = {
+      .uri       = "/api/run/start",
+      .method    = HTTP_POST,
+      .handler   = api_run_start_handler,
+      .user_ctx  = NULL
+    };
+    httpd_register_uri_handler(server, &api_run_start_uri);
+
+    httpd_uri_t api_run_stop_uri = {
+      .uri       = "/api/run/stop",
+      .method    = HTTP_POST,
+      .handler   = api_run_stop_handler,
+      .user_ctx  = NULL
+    };
+    httpd_register_uri_handler(server, &api_run_stop_uri);
+
     httpd_uri_t api_live_uri = {
       .uri       = "/api/live",
       .method    = HTTP_GET,
