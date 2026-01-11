@@ -534,11 +534,14 @@ let oriYaw = 0, oriPitch = 0, oriRoll = 0; // radians from sensor data
 // Plotly time-series setup for two graphs
 const chartLayout = {
   title: '',
-  xaxis: { title: 'Time [s]', autorange: true },
-  yaxis: { title: 'Voltage [V]', range: [0, 3.5], autorange: false },
+  xaxis: { title: 'Time [s]', autorange: true, gridcolor: '#333', color: '#bbb' },
+  yaxis: { title: 'Voltage [V]', range: [0, 3.5], autorange: false, gridcolor: '#333', color: '#bbb' },
   margin: { t: 10, r: 10, b: 40, l: 50 },
   showlegend: true,
-  legend: { x: 0, y: 1, orientation: 'h' }
+  legend: { x: 0, y: 1, orientation: 'h' },
+  plot_bgcolor: '#1a1a1a',
+  paper_bgcolor: '#1a1a1a',
+  font: { color: '#ddd' }
 };
 const chartConfig = { responsive: true, displayModeBar: false };
 
@@ -990,22 +993,55 @@ if (clearChartBtn) clearChartBtn.addEventListener('click', () => {
   }
 });
 
-// Console UI removed; no reset needed
-
 // Theme toggle updates chart colors
 function applyChartTheme() {
-  const chartBGColor = getComputedStyle(document.body).getPropertyValue('--chart-background');
-  const chartFontColor = getComputedStyle(document.body).getPropertyValue('--chart-font-color');
-  const chartAxisColor = getComputedStyle(document.body).getPropertyValue('--chart-axis-color');
-  const update = {
-    plot_bgcolor: chartBGColor,
-    paper_bgcolor: chartBGColor,
-    font: { color: chartFontColor },
-    xaxis: { color: chartAxisColor, linecolor: chartAxisColor },
-    yaxis: { color: chartAxisColor, linecolor: chartAxisColor },
-  };
-  Plotly.relayout(chartDivRight, update);
-  Plotly.relayout(chartDivLeft, update);
+  const isDarkTheme = document.body.classList.contains('dark-theme-variables');
+  
+  if (isDarkTheme) {
+    const update = {
+      plot_bgcolor: '#1a1a1a',
+      paper_bgcolor: '#1a1a1a',
+      font: { color: '#ddd' },
+      'xaxis.gridcolor': '#333',
+      'xaxis.color': '#bbb',
+      'xaxis.linecolor': '#333',
+      'xaxis.showgrid': true,
+      'yaxis.gridcolor': '#333',
+      'yaxis.color': '#bbb',
+      'yaxis.linecolor': '#333',
+      'yaxis.showgrid': true,
+    };
+    Plotly.relayout(chartDivRight, update);
+    Plotly.relayout(chartDivLeft, update);
+    
+    // Update 3D bike scene to dark background
+    if (threeScene) {
+      threeScene.background = new THREE.Color(0x1a1a1a);
+      threeScene.fog = new THREE.Fog(0x1a1a1a, 20, 100);
+    }
+  } else {
+    const update = {
+      plot_bgcolor: '#ffffff',
+      paper_bgcolor: '#ffffff',
+      font: { color: '#1d1d1f' },
+      'xaxis.gridcolor': '#e0e0e0',
+      'xaxis.color': '#666',
+      'xaxis.linecolor': '#ccc',
+      'xaxis.showgrid': true,
+      'yaxis.gridcolor': '#e0e0e0',
+      'yaxis.color': '#666',
+      'yaxis.linecolor': '#ccc',
+      'yaxis.showgrid': true,
+    };
+    Plotly.relayout(chartDivRight, update);
+    Plotly.relayout(chartDivLeft, update);
+    
+    // Update 3D bike scene to light background
+    if (threeScene) {
+      threeScene.background = new THREE.Color(0xf5f5f5);
+      threeScene.fog = new THREE.Fog(0xf5f5f5, 20, 100);
+    }
+  }
   
   // Keep handlebar 3D transparent so card background shows through
   if (handlebarScene && handlebarRenderer) {
@@ -1426,7 +1462,7 @@ function renderCorrelation(rows, fields) {
       z[i][j] = z[j][i] = corr;
     }
   }
-  Plotly.react(corrDiv, [{ z, x: nums, y: nums, type: 'heatmap', colorscale: 'RdBu', zmin: -1, zmax: 1, reversescale: true }], { margin: { t: 10, r: 10, b: 80, l: 80 } }, chartConfig);
+  Plotly.react(corrDiv, [{ z, x: nums, y: nums, type: 'heatmap', colorscale: 'RdBu', zmin: -1, zmax: 1, reversescale: true }], { margin: { t: 10, r: 10, b: 80, l: 80 }, plot_bgcolor: '#1a1a1a', paper_bgcolor: '#1a1a1a', font: { color: '#ddd' }, xaxis: { color: '#bbb' }, yaxis: { color: '#bbb' } }, chartConfig);
 }
 
 function pearson(a, b) {
@@ -1486,17 +1522,26 @@ function initThree() {
   const w = Math.max(1, threeContainer.clientWidth);
   const h = Math.max(1, threeContainer.clientHeight);
   threeScene = new THREE.Scene();
+  // Set initial background based on current theme
+  const isDarkTheme = document.body.classList.contains('dark-theme-variables');
+  const sceneBgColor = isDarkTheme ? 0x1a1a1a : 0xf5f5f5;
+  threeScene.background = new THREE.Color(sceneBgColor);
+  threeScene.fog = new THREE.Fog(sceneBgColor, 20, 100);
   threeCamera = new THREE.PerspectiveCamera(45, w/h, 0.1, 100);
   threeCamera.position.set(0, 1.2, 3);
-  threeRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  threeRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
   threeRenderer.setPixelRatio(window.devicePixelRatio || 1);
   threeRenderer.setSize(w, h);
   threeContainer.innerHTML = '';
   threeContainer.appendChild(threeRenderer.domElement);
+  // Sync charts/3D colors with current theme
+  if (typeof applyChartTheme === 'function') {
+    applyChartTheme();
+  }
   // Lights
-  const amb = new THREE.AmbientLight(0xffffff, 0.8);
+  const amb = new THREE.AmbientLight(0xffffff, 1.0);
   threeScene.add(amb);
-  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+  const dir = new THREE.DirectionalLight(0xffffff, 0.9);
   dir.position.set(3, 5, 2);
   threeScene.add(dir);
   // Add floor plane under bike wheels (grass/dirt texture)

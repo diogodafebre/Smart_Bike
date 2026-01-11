@@ -99,8 +99,13 @@
 }
 
 .profile-name {
-  color: var(--accent-color);
+  color: var(--text-primary);
   font-weight: var(--font-weight-semibold);
+}
+
+/* Dark theme: force profile name to white for contrast */
+body.dark-theme-variables .profile-name {
+  color: #ffffff;
 }
 
 /* Actions section */
@@ -213,26 +218,45 @@
   padding: 0.625rem 1.25rem;
   font-size: 0.875rem;
   font-weight: var(--font-weight-semibold);
-  background: var(--accent-color);
-  color: var(--text-inverse);
-  border: none;
+  background: #2a2a2a;
+  color: #ffffff;
+  border: 1px solid #404040;
   border-radius: var(--radius-xl);
   cursor: pointer;
   white-space: nowrap;
   transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 12px rgba(152, 94, 255, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
   letter-spacing: 0.01em;
 }
 
 .btn:hover {
-  background: var(--accent-hover);
-  box-shadow: 0 6px 20px rgba(152, 94, 255, 0.4);
-  transform: translateY(-1px);
+  background: #333333;
+  border-color: #505050;
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.3), 0 4px 12px rgba(0, 0, 0, 0.5);
+  transform: translateY(-2px);
+}
+
+/* Light theme button override: softer gray buttons on white */
+body:not(.dark-theme-variables) .btn {
+  background: #e6e6e6;
+  color: #1d1d1f;
+  border: 1px solid #d0d0d0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+body:not(.dark-theme-variables) .btn:hover {
+  background: #f0f0f0;
+  border-color: #c8c8c8;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.10);
+}
+
+body:not(.dark-theme-variables) .btn:active {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), inset 0 0 8px rgba(255, 255, 255, 0.3);
 }
 
 .btn:active {
   transform: translateY(0);
-  box-shadow: 0 2px 8px rgba(152, 94, 255, 0.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), inset 0 0 10px rgba(255, 255, 255, 0.1);
 }
 
 .btn-profile {
@@ -290,7 +314,7 @@
 .dashboard-main {
   flex: 1;
   padding: 0.5rem;
-  background: var(--color-background);
+  background: transparent;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -390,12 +414,12 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(26, 26, 26, 0.9);
   backdrop-filter: blur(20px);
   padding: var(--spacing-sm) var(--spacing-md);
   border-radius: var(--radius-xl);
   font-size: 0.75rem;
-  color: var(--text-inverse);
+  color: var(--text-primary);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(255, 255, 255, 0.15);
   z-index: 10;
@@ -422,7 +446,19 @@
   white-space: nowrap;
   font-family: 'Menlo', 'Monaco', monospace;
   font-size: 0.7rem;
+  color: var(--text-primary);
+}
+
+/* Dark theme: legend labels should be bright for contrast */
+body.dark-theme-variables .legend-label {
   color: #ffffff;
+}
+
+/* Light theme: lighter legend background for clarity */
+body:not(.dark-theme-variables) .heatmap-legend {
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text-primary);
+  border: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 /* ===== MEDIA QUERIES (Progressive Enhancement) ===== */
@@ -575,11 +611,11 @@
   --text-tertiary: #a1a1a6;
   --text-inverse: #ffffff;
   
-  /* Accent colors - Purple palette */
-  --accent-color: #985eff;
-  --accent-hover: #8645e0;
-  --accent-light: #a86ff5;
-  --accent-dark: #7d4ac7;
+  /* Accent colors - Neutral Gray palette */
+  --accent-color: #4a4a4a;
+  --accent-hover: #5a5a5a;
+  --accent-light: #6a6a6a;
+  --accent-dark: #2a2a2a;
   
   /* Status colors */
   --success-color: #34c759;
@@ -600,11 +636,11 @@
   
   /* ===== SHADOWS (Light Theme) ===== */
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
-  --shadow-base: 0 2px 8px rgba(80, 50, 150, 0.04);
-  --shadow-md: 0 8px 24px rgba(80, 50, 150, 0.06);
-  --shadow-lg: 0 12px 32px rgba(80, 50, 150, 0.08);
-  --shadow-xl: 0 20px 50px rgba(80, 50, 150, 0.1);
-  --shadow-hover: 0 8px 30px rgba(80, 50, 150, 0.12);
+  --shadow-base: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.10);
+  --shadow-xl: 0 20px 50px rgba(0, 0, 0, 0.12);
+  --shadow-hover: 0 8px 30px rgba(0, 0, 0, 0.12);
   
   /* ===== DESIGN SYSTEM ===== */
   /* Border radius - Apple-style organic corners */
@@ -642,7 +678,7 @@
   --color-dark-variant: var(--text-secondary);
   --color-info-light: var(--border-color);
   --color-info-dark: var(--text-tertiary);
-  --color-light: rgba(152, 94, 255, 0.08);
+  --color-light: rgba(255, 255, 255, 0.08);
   --card-border-radius: var(--card-radius);
   --border-radius-1: var(--radius-sm);
   --border-radius-2: var(--radius-md);
@@ -657,23 +693,23 @@
 
 /* ===== DARK THEME: PRO PURPLE ===== */
 .dark-theme-variables {
-  /* Background - True Black to Midnight Violet */
-  --primary-bg: #000000;
-  --secondary-bg: #1a1a2e;
-  --card-bg: rgba(25, 20, 40, 0.7);
-  --surface-bg: rgba(40, 30, 60, 0.5);
+  /* Background - Gray to Black Fade */
+  --primary-bg: #1a1a1a;
+  --secondary-bg: #0f0f0f;
+  --card-bg: rgba(25, 25, 25, 0.8);
+  --surface-bg: rgba(30, 30, 30, 0.6);
   
   /* Text colors */
   --text-primary: #ffffff;
   --text-secondary: #e5e5ea;
   --text-tertiary: #a1a1a6;
-  --text-inverse: #1d1d1f;
+  --text-inverse: #ffffff;
   
-  /* Accent - Apple's Vivid Purple */
-  --accent-color: #bf5af2;
-  --accent-hover: #d47dff;
-  --accent-light: #d47dff;
-  --accent-dark: #a855f7;
+  /* Accent - Dark Gray for buttons */
+  --accent-color: #2a2a2a;
+  --accent-hover: #333333;
+  --accent-light: #3a3a3a;
+  --accent-dark: #1a1a1a;
   
   /* Status colors (adjusted for dark theme) */
   --success-color: #30b0c0;
@@ -682,23 +718,23 @@
   --info-color: #00b0ff;
   
   /* Border colors */
-  --border-color: rgba(255, 255, 255, 0.1);
-  --border-light: rgba(255, 255, 255, 0.06);
-  --divider-color: rgba(255, 255, 255, 0.15);
+  --border-color: rgba(255, 255, 255, 0.08);
+  --border-light: rgba(255, 255, 255, 0.04);
+  --divider-color: rgba(255, 255, 255, 0.1);
   
   /* Chart colors */
-  --chart-bg: rgba(15, 15, 25, 0.8);
-  --chart-surface: rgba(40, 30, 60, 0.4);
+  --chart-bg: #1a1a1a;
+  --chart-surface: rgba(25, 25, 25, 0.3);
   --chart-text: #ffffff;
-  --chart-grid: rgba(255, 255, 255, 0.08);
+  --chart-grid: rgba(255, 255, 255, 0.05);
   
   /* ===== SHADOWS (Dark Theme) ===== */
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-base: 0 2px 8px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 8px 24px rgba(191, 90, 242, 0.12);
-  --shadow-lg: 0 12px 32px rgba(191, 90, 242, 0.15);
-  --shadow-xl: 0 20px 50px rgba(191, 90, 242, 0.2);
-  --shadow-hover: 0 8px 30px rgba(191, 90, 242, 0.25);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-base: 0 2px 8px rgba(0, 0, 0, 0.6);
+  --shadow-md: 0 8px 24px rgba(255, 255, 255, 0.05);
+  --shadow-lg: 0 12px 32px rgba(255, 255, 255, 0.06);
+  --shadow-xl: 0 20px 50px rgba(255, 255, 255, 0.08);
+  --shadow-hover: 0 8px 30px rgba(255, 255, 255, 0.12);
   
   /* Design system (inherits from light theme) */
   --radius-sm: 0.5rem;
@@ -729,12 +765,51 @@
   --color-primary: var(--accent-color);
   --color-dark: var(--text-primary);
   --color-dark-variant: var(--text-secondary);
-  --color-light: rgba(191, 90, 242, 0.12);
+  --color-light: rgba(255, 255, 255, 0.08);
   --box-shadow: var(--shadow-md);
   --color-primary-variant: var(--accent-hover);
   --chart-background: var(--chart-bg);
   --chart-font-color: var(--chart-text);
   --chart-axis-color: var(--chart-text);
+}
+
+/* ===== SCROLLBAR STYLING (Dark Theme) ===== */
+/* Webkit browsers (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--primary-bg);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, #333333 0%, #2a2a2a 100%);
+  border-radius: 10px;
+  border: 2px solid var(--primary-bg);
+  box-shadow: inset 0 0 6px rgba(255, 255, 255, 0.1);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(135deg, #404040 0%, #333333 100%);
+  box-shadow: inset 0 0 8px rgba(255, 255, 255, 0.2);
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: linear-gradient(135deg, #454545 0%, #3a3a3a 100%);
+  box-shadow: inset 0 0 10px rgba(255, 255, 255, 0.3);
+}
+
+/* Firefox */
+* {
+  scrollbar-color: #333333 var(--primary-bg);
+  scrollbar-width: thin;
+}
+
+body.dark-theme-variables {
+  background: linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%);
 }
 
 /* ===== RESET & BASE STYLES ===== */
@@ -766,6 +841,10 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   line-height: 1.6;
+}
+
+body.dark-theme-variables {
+  background: #1a1a1a !important;
 }
 
 a {
@@ -1039,13 +1118,13 @@ strong {
 
 .theme-radio:hover {
   border-color: var(--accent-color);
-  box-shadow: 0 0 0 3px rgba(152, 94, 255, 0.1);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
 }
 
 .theme-radio:checked {
   background: var(--accent-color);
   border-color: var(--accent-color);
-  box-shadow: 0 0 0 3px rgba(152, 94, 255, 0.15);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.15);
 }
 
 /* Language buttons in settings */
@@ -1097,14 +1176,14 @@ input[type="checkbox"] {
 input[type="checkbox"]:checked {
   background: var(--accent-color);
   border-color: var(--accent-color);
-  box-shadow: 0 0 0 3px rgba(152, 94, 255, 0.15);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.15);
 }
 
 input[type="checkbox"]:checked::before {
   content: "✓";
   font-size: 0.875rem;
   font-weight: var(--font-weight-bold);
-  color: var(--text-inverse);
+  color: #ffffff;
   position: absolute;
   top: 50%;
   left: 50%;
@@ -1113,7 +1192,7 @@ input[type="checkbox"]:checked::before {
 
 input[type="checkbox"]:hover {
   border-color: var(--accent-color);
-  box-shadow: 0 0 0 3px rgba(152, 94, 255, 0.1);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
 }
 
 /* Range slider styling */
@@ -1187,7 +1266,7 @@ textarea:focus {
   outline: none;
   border-color: var(--accent-color);
   background: var(--card-bg);
-  box-shadow: 0 0 0 3px rgba(152, 94, 255, 0.1), inset 0 1px 3px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1), inset 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 input:disabled,
