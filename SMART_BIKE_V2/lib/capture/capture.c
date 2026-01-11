@@ -278,12 +278,16 @@ esp_err_t cpt_task_once(void) {
     static uint32_t last_tick_time = 0;
     static uint32_t count_led_blink = 0;
     static bool on = false;
-
-    if (gpio_get_level(PIN_RUN_SWITCH) == 0) {
-        cpt_started = true;
-    } else {
-        cpt_started = false;
+    static bool last_button_state = 1;  // Button is high when not pressed
+    
+    // Detect button press (edge detection: transition from high to low)
+    bool current_button_state = gpio_get_level(PIN_RUN_SWITCH);
+    if (last_button_state == 1 && current_button_state == 0) {
+        // Button pressed: toggle the state
+        cpt_started = !cpt_started;
+        ESP_LOGI(TAG, "Button pressed - toggled to: %s", cpt_started ? "RUNNING" : "STOPPED");
     }
+    last_button_state = current_button_state;
 
     if (cpt_started) {
         if (count_led_blink >= 250 / (FREQ_CPT_READ_MS / 2)) {
