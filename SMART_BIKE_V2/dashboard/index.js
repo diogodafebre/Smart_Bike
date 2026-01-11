@@ -143,8 +143,8 @@ async function refreshProfilesUI() {
     // Show only real runners (exclude reserved folders like 'models', 'SYSTEM~1', etc.)
     for (const r of runners) {
       const lowerName = r.toLowerCase();
-      // Skip system folders: models, SYSTEM~1, lost+found, etc.
-      if (lowerName === 'models' || r.includes('SYSTEM') || lowerName === 'lost+found') continue;
+      // Skip system folders: models, SYSTEM~1, lost+found, System Volume Information, etc.
+      if (lowerName === 'models' || r.includes('SYSTEM') || lowerName === 'lost+found' || r.includes('System Volume Information')) continue;
       const opt = document.createElement('option');
       opt.value = r; opt.textContent = r; if (r === active) opt.selected = true; profileSelect.appendChild(opt);
     }
