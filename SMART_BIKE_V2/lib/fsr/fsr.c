@@ -116,7 +116,16 @@ esp_err_t fsr_calibrate(void) {
             ESP_ERROR_CHECK(gpio_set_level(FSR_SEL_B_GPIO, (i >> 1) & 0x01));
             int raw_b, raw_a;
             ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC1_CHAN0, &raw_b));
-            ESP_ERROR_CHECK(adc_oneshot_read(adc2_handle, ADC2_CHAN0, &raw_a));
+            
+            // Try to read ADC2, but handle timeout gracefully (WiFi may block it)
+            esp_err_t err = adc_oneshot_read(adc2_handle, ADC2_CHAN0, &raw_a);
+            if (err == ESP_ERR_TIMEOUT) {
+                ESP_LOGW("FSR", "ADC2 timeout during calibration (WiFi active), using zero offset");
+                raw_a = 0; // Use zero offset when WiFi blocks ADC2
+            } else {
+                ESP_ERROR_CHECK(err);
+            }
+            
             g_fsr_calibration_values.fsr_b_values[i] += raw_b;
             g_fsr_calibration_values.fsr_a_values[i] += raw_a;
         }
