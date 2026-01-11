@@ -851,11 +851,26 @@ function handleSensorData(voltages, timestamp, roll, pitch) {
   if (!liveMode && !replayData) return;
   
   // Initialize time reference if needed
-  if (t0 == null) t0 = Date.now();
+  if (t0 == null) {
+    // For live mode: use current time
+    // For replay: use the first timestamp from the data
+    if (replayData) {
+      t0 = 0; // Replay uses timestamps directly from data
+    } else {
+      t0 = Date.now(); // Live mode starts from now
+    }
+  }
   
   // Calculate relative time in seconds
-  const elapsedMs = timestamp || (Date.now() - t0);
-  const seconds = elapsedMs / 1000;
+  let seconds;
+  if (replayData) {
+    // Replay mode: use the timestamp from the data directly (already in ms)
+    seconds = timestamp / 1000;
+  } else {
+    // Live mode: calculate elapsed time from when we started
+    const elapsedMs = Date.now() - t0;
+    seconds = elapsedMs / 1000;
+  }
   
   // Update sample count
   sampleCount += 1;
