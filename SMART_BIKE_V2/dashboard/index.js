@@ -10,6 +10,9 @@ const LIVE_WINDOW_SECONDS = 60;  // 60-second rolling window for live data
 let isPlottingCSV = false;  // Track if we're plotting CSV data vs live data
 let runActive = false; // Track if device is currently recording
 let currentLang = 'en'; // Active language key
+let replayTimer = null;  // For CSV replay
+let replayData = null;  // Parsed replay data
+let replayIndex = 0;  // Current replay position
 
 // UI refs
 const themeToggler = document.querySelector(".theme-toggler");
@@ -64,6 +67,7 @@ const navLinks = document.querySelectorAll('.nav-link');
 const runSelector = document.getElementById('run_selector');
 const activeProfileNameEl = document.getElementById('active_profile_name');
 const btnRunControl = document.getElementById('btn_run_control');
+const btnReplayCSV = document.getElementById('btn_replay_csv');
 
 // Profile / Settings UI
 const btnProfile = document.getElementById('btn_profile');
@@ -605,10 +609,198 @@ function updateRunButton() {
   btnRunControl.disabled = !liveMode;
 }
 
+function stopReplay() {
+  if (replayTimer) {
+    // Cancel both animation frames and timeouts (replayTimer reused for either)
+    cancelAnimationFrame(replayTimer);
+    clearTimeout(replayTimer);
+    replayTimer = null;
+  }
+  replayData = null;
+  replayIndex = 0;
+  replayBatchRight = [0, 1, 2, 3].map(() => ({ x: [], y: [] }));
+  replayBatchLeft = [0, 1, 2, 3].map(() => ({ x: [], y: [] }));
+  replayLastFlush = 0;
+}
+
+async function startReplay() {
+  // Re-fetch and parse the currently loaded CSV file
+  if (!currentRun || !currentRun.name) {
+    console.log('No run loaded');
+    return;
+  }
+  
+  stopReplay();
+  
+  try {
+    // Fetch CSV again
+    const filename = currentRun.name;
+    const url = filename.includes('/') 
+      ? `/api/runs/${encodeURIComponent(filename)}`
+      : `/api/runs/${encodeURIComponent(filename)}`;
+    
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const csvText = await resp.text();
+    
+    // Parse CSV
+    const lines = csvText.trim().split('\n');
+    if (lines.length < 2) throw new Error('CSV file is empty');
+    
+    const header = lines[0].split(',').map(s => s.trim());
+    
+    // Detect format
+    const isNewFormat = header.length >= 11 && header[0].toLowerCase().includes('time');
+    const isOldFormat = header.length >= 4 && header.some(h => h.toLowerCase().includes('capteur'));
+    
+    // Build replay data array from CSV
+    replayData = [];
+    
+    if (isNewFormat) {
+      // New format: Time(ms), Roll(deg), Pitch(deg), FSR_B0-B3, FSR_A0-A3
+      for (let i = 1; i < lines.length; i++) {
+        const parts = lines[i].split(',').map(s => s.trim());
+        if (parts.length < 11) continue;
+        
+        const timeMs = parseFloat(parts[0]);
+        const roll = parseFloat(parts[1]);
+        const pitch = parseFloat(parts[2]);
+        
+        // Convert ADC values to voltages
+        const voltages = [];
+        for (let j = 0; j < 4; j++) {
+          const adcValue = parseInt(parts[3 + j]);
+          voltages.push(((adcValue * 3.3) / 4095) * 7);
+        }
+        for (let j = 0; j < 4; j++) {
+          const adcValue = parseInt(parts[7 + j]);
+          voltages.push(((adcValue * 3.3) / 4095) * 7);
+        }
+        
+        replayData.push({ timeMs, voltages, roll, pitch });
+      }
+    } else if (isOldFormat) {
+      // Old format: run,time_run_ms,capteur,value_V
+      // Group by time first
+      const timeMap = {};
+      for (let i = 1; i < lines.length; i++) {
+        const parts = lines[i].split(',').map(s => s.trim());
+        if (parts.length < 4) continue;
+        
+        const timeMs = parseFloat(parts[1]);
+        const sensor = parseInt(parts[2]);
+        const voltage = parseFloat(parts[3]);
+        
+        if (!timeMap[timeMs]) {
+          timeMap[timeMs] = { voltages: new Array(8).fill(0), roll: 0, pitch: 0 };
+        }
+        if (sensor >= 1 && sensor <= 8) {
+          timeMap[timeMs].voltages[sensor - 1] = voltage;
+        }
+      }
+      
+      // Convert to array and sort by time
+      replayData = Object.keys(timeMap)
+        .map(t => ({ timeMs: parseFloat(t), ...timeMap[t] }))
+        .sort((a, b) => a.timeMs - b.timeMs);
+    }
+    
+    if (replayData.length === 0) {
+      console.log('No data to replay');
+      return;
+    }
+    
+    // Clear charts
+    Plotly.react(chartDivRight, [
+      { x: [], y: [], mode: 'lines', line: { color: colors[0], width: 2 }, name: 'Sensor 1' },
+      { x: [], y: [], mode: 'lines', line: { color: colors[1], width: 2 }, name: 'Sensor 2' },
+      { x: [], y: [], mode: 'lines', line: { color: colors[2], width: 2 }, name: 'Sensor 3' },
+      { x: [], y: [], mode: 'lines', line: { color: colors[3], width: 2 }, name: 'Sensor 4' }
+    ], chartLayout, chartConfig);
+    
+    Plotly.react(chartDivLeft, [
+      { x: [], y: [], mode: 'lines', line: { color: colors[0], width: 2 }, name: 'Sensor 5' },
+      { x: [], y: [], mode: 'lines', line: { color: colors[1], width: 2 }, name: 'Sensor 6' },
+      { x: [], y: [], mode: 'lines', line: { color: colors[2], width: 2 }, name: 'Sensor 7' },
+      { x: [], y: [], mode: 'lines', line: { color: colors[3], width: 2 }, name: 'Sensor 8' }
+    ], chartLayout, chartConfig);
+    
+    // Reset state
+    t0 = null;
+    sampleCount = 0;
+    sumPressure = 0;
+    maxPressure = -Infinity;
+    sensorPressures = [0, 0, 0, 0, 0, 0, 0, 0];
+    sensorPressureHistory = [[], [], [], [], [], [], [], []];
+    sensorPressureAverages = [0, 0, 0, 0, 0, 0, 0, 0];
+    if (latestPressureEl) latestPressureEl.textContent = '0 V';
+    if (sampleCountEl) sampleCountEl.textContent = '0';
+    if (durationEl) durationEl.textContent = '0s';
+    if (meanPressureEl) meanPressureEl.textContent = '0 V';
+    if (maxPressureEl) maxPressureEl.textContent = '0 V';
+    
+    replayIndex = 0;
+    t0 = Date.now() - replayData[0].timeMs;
+    
+    // High-resolution clock and absolute scheduling to handle ~10ms spacing
+    const replayStartPerf = performance.now();
+    const firstPointTime = replayData[0].timeMs;
+    
+    const stepReplay = () => {
+      if (replayIndex >= replayData.length) {
+        // Flush any buffered points before stopping
+        const hasBuffered = replayBatchRight.some(b => b.x.length > 0) || replayBatchLeft.some(b => b.x.length > 0);
+        if (hasBuffered) {
+          const rightX = replayBatchRight.map(b => b.x);
+          const rightY = replayBatchRight.map(b => b.y);
+          const leftX = replayBatchLeft.map(b => b.x);
+          const leftY = replayBatchLeft.map(b => b.y);
+          Plotly.extendTraces(chartDivRight, { x: rightX, y: rightY }, [0, 1, 2, 3]);
+          Plotly.extendTraces(chartDivLeft, { x: leftX, y: leftY }, [0, 1, 2, 3]);
+        }
+        console.log('Replay complete');
+        stopReplay();
+        return;
+      }
+      
+      const nowPerf = performance.now();
+      let processed = 0;
+      // Flush all points whose target time has passed (with small tolerance)
+      while (replayIndex < replayData.length) {
+        const point = replayData[replayIndex];
+        const targetTime = replayStartPerf + (point.timeMs - firstPointTime);
+        if (targetTime > nowPerf + 2) break; // tighter tolerance for 10ms spacing
+        handleSensorData(point.voltages, point.timeMs, point.roll, point.pitch);
+        replayIndex++;
+        processed++;
+      }
+      
+      if (replayIndex < replayData.length) {
+        // Use animation frame to schedule next batch; if backlog, yield one frame
+        replayTimer = requestAnimationFrame(stepReplay);
+      } else {
+        console.log('Replay complete');
+        stopReplay();
+      }
+    };
+    
+    // Kick off replay loop
+    replayTimer = requestAnimationFrame(stepReplay);
+    console.log(`Replay started with ${replayData.length} points`);
+    
+  } catch (e) {
+    console.error('Replay failed:', e);
+    alert('Failed to replay: ' + e.message);
+  }
+}
+
+
+
 // Handle incoming sensor data from ESP32
 function handleSensorData(voltages, timestamp, roll, pitch) {
   if (!voltages || voltages.length !== 8) return;
-  if (!liveMode || isPlottingCSV) return; // Don't update during CSV viewing
+  // Allow updates during replay (isPlottingCSV is true for replay) but not when in historical view
+  if (!liveMode && !replayData) return;
   
   // Initialize time reference if needed
   if (t0 == null) t0 = Date.now();
@@ -629,6 +821,31 @@ function handleSensorData(voltages, timestamp, roll, pitch) {
   if (roll !== undefined && pitch !== undefined) {
     updateBikeRotation(roll, pitch);
   }
+
+  // Replay path: skip heavy averaging to reduce lag, but keep heatmap and plots
+  if (replayData && !liveMode) {
+    updateHandlebarHeatmap();
+    for (let i = 0; i < 4; i++) {
+      replayBatchRight[i].x.push(seconds);
+      replayBatchRight[i].y.push(voltages[i]);
+      replayBatchLeft[i].x.push(seconds);
+      replayBatchLeft[i].y.push(voltages[4 + i]);
+    }
+    const nowFlush = performance.now();
+    const shouldFlush = replayBatchRight[0].x.length >= 15 || (replayLastFlush === 0) || (nowFlush - replayLastFlush >= 25);
+    if (shouldFlush) {
+      const rightX = replayBatchRight.map(b => b.x);
+      const rightY = replayBatchRight.map(b => b.y);
+      const leftX = replayBatchLeft.map(b => b.x);
+      const leftY = replayBatchLeft.map(b => b.y);
+      Plotly.extendTraces(chartDivRight, { x: rightX, y: rightY }, [0, 1, 2, 3]);
+      Plotly.extendTraces(chartDivLeft, { x: leftX, y: leftY }, [0, 1, 2, 3]);
+      replayBatchRight = [0, 1, 2, 3].map(() => ({ x: [], y: [] }));
+      replayBatchLeft = [0, 1, 2, 3].map(() => ({ x: [], y: [] }));
+      replayLastFlush = nowFlush;
+    }
+    return;
+  }
   
   // Store in history for averaging
   for (let i = 0; i < 8; i++) {
@@ -644,15 +861,13 @@ function handleSensorData(voltages, timestamp, roll, pitch) {
   
   updateHandlebarHeatmap();
   
-  // Prepare data for right handle (sensors 1-4) - one point per trace
+  // Live mode or non-replay CSV mode: update per-sample
   const xDataRight = [[seconds], [seconds], [seconds], [seconds]];
   const yDataRight = [[voltages[0]], [voltages[1]], [voltages[2]], [voltages[3]]];
   
-  // Prepare data for left handle (sensors 5-8) - one point per trace
   const xDataLeft = [[seconds], [seconds], [seconds], [seconds]];
   const yDataLeft = [[voltages[4]], [voltages[5]], [voltages[6]], [voltages[7]]];
   
-  // Extend traces (add new points)
   Plotly.extendTraces(chartDivRight, { x: xDataRight, y: yDataRight }, [0, 1, 2, 3]);
   Plotly.extendTraces(chartDivLeft, { x: xDataLeft, y: yDataLeft }, [0, 1, 2, 3]);
   
@@ -699,6 +914,9 @@ function handleSensorData(voltages, timestamp, roll, pitch) {
 const clearChartBtn = document.getElementById('btn_clear_chart');
 
 if (clearChartBtn) clearChartBtn.addEventListener('click', () => {
+  // Stop any ongoing replay
+  stopReplay();
+  
   // Clear right handle chart
   Plotly.react(chartDivRight, [
     { x: [], y: [], mode: 'lines', line: { color: colors[0], width: 2 }, name: 'Sensor 1' },
@@ -908,6 +1126,7 @@ window.addEventListener('load', () => {
   }
   
   if (btnRenameRun) btnRenameRun.addEventListener('click', renameSelectedRun);
+  if (btnReplayCSV) btnReplayCSV.addEventListener('click', startReplay);
   if (runnerFilterSel) runnerFilterSel.addEventListener('change', filterRunsByRunner);
   applyLayout('live');
   setActiveNav('live');
@@ -1000,6 +1219,13 @@ function populateFieldSelectors(fields) {
   xFieldSel.onchange = () => replotCurrent();
   yFieldSel.onchange = () => replotCurrent();
   if (y2FieldSel) y2FieldSel.onchange = () => replotCurrent();
+  
+  // Show replay button if this is a time-series CSV
+  if (btnReplayCSV) {
+    const hasTime = fields.includes('Time(ms)') || fields.includes('time_run_ms');
+    const hasFSR = fields.some(f => f.includes('FSR_'));
+    btnReplayCSV.style.display = (hasTime && hasFSR) ? '' : 'none';
+  }
   if (dualAxisChk) dualAxisChk.onchange = () => replotCurrent();
 }
 
@@ -1464,6 +1690,10 @@ let sensorPressureHistory = [[], [], [], [], [], [], [], []]; // Store history f
 let sensorPressureAverages = [0, 0, 0, 0, 0, 0, 0, 0]; // Averaged values for heatmap
 let useAveragePressure = true; // Toggle between current and average
 let hoverTime = null; // Time value when hovering over graph
+// Replay chart buffering to avoid lag when points are ~10ms apart
+let replayBatchRight = [0, 1, 2, 3].map(() => ({ x: [], y: [] }));
+let replayBatchLeft = [0, 1, 2, 3].map(() => ({ x: [], y: [] }));
+let replayLastFlush = 0;
 let handlebarRotation = { x: 0, y: 0 };
 let handlebarZoom = 2;
 let handlebarCenter = new THREE.Vector3(0, 0, 0);
@@ -1690,8 +1920,8 @@ function updateHandlebarHeatmap() {
       }
       pressuresToUse[i] = closest.pressure;
     }
-  } else if (liveMode) {
-    // In live mode, always use current/latest values (no averaging)
+  } else if (liveMode || replayData) {
+    // In live mode or replay mode, always use current/instant values (no averaging)
     pressuresToUse = sensorPressures;
   } else if (useAveragePressure) {
     // Use averaged values (for CSV mode)
@@ -1904,6 +2134,7 @@ const I18N = {
     clear_console: 'Clear console',
     start_run: 'Start run',
     stop_run: 'Stop run',
+    replay_run: 'Replay',
     filters: 'Filters',
     apply: 'Apply',
     bike_3d: '3D Bike',
@@ -1982,6 +2213,7 @@ const I18N = {
     clear_console: 'Effacer la console',
     start_run: 'Démarrer le run',
     stop_run: 'Arrêter le run',
+    replay_run: 'Relire',
     filters: 'Filtres',
     apply: 'Appliquer',
     bike_3d: 'Vélo 3D',
@@ -2060,6 +2292,7 @@ const I18N = {
     clear_console: 'Konsole leeren',
     start_run: 'Lauf starten',
     stop_run: 'Lauf stoppen',
+    replay_run: 'Abspielen',
     filters: 'Filter',
     apply: 'Übernehmen',
     bike_3d: '3D-Fahrrad',
@@ -2267,6 +2500,9 @@ function showRunSelectionDialog(runs) {
 // Load and plot CSV from SD card
 async function loadAndPlotCSV(filename) {
   try {
+    // Store current run info for replay feature
+    currentRun = { name: filename };
+    
     // If filename contains '/', it's a profile run (PROFILE/FILE.CSV)
     // Otherwise it's an unsorted run (FILE.CSV)
     const url = filename.includes('/') 
@@ -2432,6 +2668,11 @@ async function loadAndPlotCSV(filename) {
     });
     
     console.log(`Loaded ${filename} with ${lines.length - 1} samples`);
+    
+    // Show replay button for CSV with time-series data
+    if (btnReplayCSV) {
+      btnReplayCSV.style.display = '';
+    }
     
     // Update KPIs if elements exist
     if (lines.length > 1) {
