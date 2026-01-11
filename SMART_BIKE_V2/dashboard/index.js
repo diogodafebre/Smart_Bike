@@ -723,11 +723,17 @@ if (clearChartBtn) clearChartBtn.addEventListener('click', () => {
   if (meanPressureEl) meanPressureEl.textContent = '0 N';
   if (maxPressureEl) maxPressureEl.textContent = '0 N';
   
-  // Return to live mode
+  // Clear CSV highlighting
   isPlottingCSV = false;
-  liveMode = true;
-  if (liveModeChk) liveModeChk.checked = true;
-  startHttpPolling();
+  
+  // Only return to live mode if live data toggle is checked
+  if (liveDataToggle && liveDataToggle.checked) {
+    liveMode = true;
+    startHttpPolling();
+  } else {
+    // Keep historical mode, but clear CSV selection
+    highlightSelectedRun('');
+  }
 });
 
 // Console UI removed; no reset needed
