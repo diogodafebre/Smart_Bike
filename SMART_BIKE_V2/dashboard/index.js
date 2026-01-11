@@ -1012,6 +1012,7 @@ window.addEventListener('load', () => {
   loadThemePreference();
   connect();
   updateRunButton();
+  if (btnReplayCSV) btnReplayCSV.style.display = 'none';
   if (btnRefreshRuns) btnRefreshRuns.addEventListener('click', listRuns);
   if (btnLoadRun) btnLoadRun.addEventListener('click', plotSelectedRun);
   if (liveModeChk) liveModeChk.addEventListener('change', () => { 
@@ -1061,6 +1062,8 @@ window.addEventListener('load', () => {
         runSelectorContainer.style.display = isLiveMode ? 'none' : 'block';
       }
       if (isLiveMode) {
+        stopReplay();
+        if (btnReplayCSV) btnReplayCSV.style.display = 'none';
         // Switch to live mode
         liveMode = true;
         isPlottingCSV = false;
