@@ -534,14 +534,15 @@ let oriYaw = 0, oriPitch = 0, oriRoll = 0; // radians from sensor data
 // Plotly time-series setup for two graphs
 const chartLayout = {
   title: '',
-  xaxis: { title: 'Time [s]', autorange: true, gridcolor: '#333', color: '#bbb' },
-  yaxis: { title: 'Voltage [V]', range: [0, 3.5], autorange: false, gridcolor: '#333', color: '#bbb' },
-  margin: { t: 10, r: 10, b: 40, l: 50 },
+  xaxis: { title: 'Time [s]', range: [-1, 30], autorange: false, gridcolor: '#333', color: '#ffffff' },
+  yaxis: { title: 'Voltage [V]', range: [-0.2, 3.5], autorange: false, gridcolor: '#333', color: '#ffffff' },
+  margin: { t: 0, r: 0, b: 30, l: 40 },
   showlegend: true,
   legend: { x: 0, y: 1, orientation: 'h' },
-  plot_bgcolor: '#1a1a1a',
-  paper_bgcolor: '#1a1a1a',
-  font: { color: '#ddd' }
+  plot_bgcolor: 'rgba(25, 25, 25, 1)',
+  paper_bgcolor: 'rgba(25, 25, 25, 1)',
+  font: { color: '#ffffff' },
+  autosize: true
 };
 const chartConfig = { responsive: true, displayModeBar: false };
 
@@ -999,15 +1000,15 @@ function applyChartTheme() {
   
   if (isDarkTheme) {
     const update = {
-      plot_bgcolor: '#1a1a1a',
-      paper_bgcolor: '#1a1a1a',
-      font: { color: '#ddd' },
+      plot_bgcolor: 'rgba(25, 25, 25, 1)',
+      paper_bgcolor: 'rgba(25, 25, 25, 1)',
+      font: { color: '#ffffff' },
       'xaxis.gridcolor': '#333',
-      'xaxis.color': '#bbb',
+      'xaxis.color': '#ffffff',
       'xaxis.linecolor': '#333',
       'xaxis.showgrid': true,
       'yaxis.gridcolor': '#333',
-      'yaxis.color': '#bbb',
+      'yaxis.color': '#ffffff',
       'yaxis.linecolor': '#333',
       'yaxis.showgrid': true,
     };
@@ -2753,7 +2754,7 @@ async function loadAndPlotCSV(filename) {
       title: '',
       xaxis: { title: 'Time (s)', autorange: true },
       yaxis: { title: 'Voltage (V)' },
-      margin: { t: 10, r: 10, b: 40, l: 50 },
+      margin: { t: 0, r: 0, b: 30, l: 40 },
       showlegend: true,
       legend: { x: 0, y: 1, orientation: 'h' }
     };

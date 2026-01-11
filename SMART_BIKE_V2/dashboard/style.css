@@ -335,7 +335,7 @@ body:not(.dark-theme-variables) .btn:active {
   flex-direction: column;
   background: var(--card-bg);
   border-radius: var(--card-radius);
-  padding: var(--spacing-lg);
+  padding: 0;
   box-shadow: var(--shadow-base);
   border: 1px solid var(--border-light);
   min-height: 300px;
@@ -355,8 +355,8 @@ body:not(.dark-theme-variables) .btn:active {
   font-size: 1.125rem;
   font-weight: var(--font-weight-semibold);
   color: var(--text-primary);
-  margin-bottom: var(--spacing-lg);
-  padding-bottom: var(--spacing-sm);
+  margin-bottom: 0;
+  padding: var(--spacing-lg) var(--spacing-lg) var(--spacing-sm) var(--spacing-lg);
   border-bottom: 1px solid var(--border-light);
   flex-shrink: 0;
   letter-spacing: -0.01em;
@@ -369,9 +369,9 @@ body:not(.dark-theme-variables) .btn:active {
   min-height: 0;
   position: relative;
   overflow: hidden;
-  background: var(--chart-surface);
-  border-radius: var(--radius-xl);
-  padding: var(--spacing-md);
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
 }
 
 /* Remove extra padding for cards without titles */
@@ -391,8 +391,9 @@ body:not(.dark-theme-variables) .btn:active {
   height: 100%;
   min-height: 0;
   background: var(--chart-bg);
-  border-radius: var(--radius-xl);
-  box-shadow: inset 0 0 0 1px var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: none;
+  overflow: hidden;
 }
 
 /* Make handlebar viewer transparent so card background shows through */
@@ -495,6 +496,13 @@ body:not(.dark-theme-variables) .heatmap-legend {
     min-height: 360px;
   }
 
+  /* Chart and 3D cards should have minimal padding to maximize content space */
+  #chart_pressure_left_card,
+  #chart_pressure_right_card,
+  #three_card {
+    padding: var(--spacing-sm);
+  }
+
   .card-title {
     font-size: 1.25rem;
     margin-bottom: var(--spacing-xl);
@@ -538,6 +546,13 @@ body:not(.dark-theme-variables) .heatmap-legend {
   .dashboard-card {
     padding: var(--spacing-xl);
     min-height: 0;
+  }
+
+  /* Chart and 3D cards should have minimal padding to maximize content space */
+  #chart_pressure_left_card,
+  #chart_pressure_right_card,
+  #three_card {
+    padding: var(--spacing-sm);
   }
 
   .card-title {
@@ -602,8 +617,8 @@ body:not(.dark-theme-variables) .heatmap-legend {
   /* Background - Soft Off-white */
   --primary-bg: #fbfbfd;
   --secondary-bg: #f5f3f7;
-  --card-bg: #ffffff;
-  --surface-bg: #faf8fc;
+  --card-bg: rgba(255, 255, 255, 0.75);
+  --surface-bg: rgba(250, 248, 252, 0.5);
   
   /* Text colors - High contrast */
   --text-primary: #1d1d1f;
@@ -629,8 +644,8 @@ body:not(.dark-theme-variables) .heatmap-legend {
   --divider-color: #d1d1d6;
   
   /* Chart colors */
-  --chart-bg: #ffffff;
-  --chart-surface: #faf8fc;
+  --chart-bg: rgba(255, 255, 255, 1);
+  --chart-surface: rgba(250, 248, 252, 0.6);
   --chart-text: #1d1d1f;
   --chart-grid: #e5e5ea;
   
@@ -723,7 +738,7 @@ body:not(.dark-theme-variables) .heatmap-legend {
   --divider-color: rgba(255, 255, 255, 0.1);
   
   /* Chart colors */
-  --chart-bg: #1a1a1a;
+  --chart-bg: rgba(25, 25, 25, 1);
   --chart-surface: rgba(25, 25, 25, 0.3);
   --chart-text: #ffffff;
   --chart-grid: rgba(255, 255, 255, 0.05);
@@ -951,6 +966,17 @@ strong {
   z-index: 200;
   padding: 1rem;
   backdrop-filter: blur(5px);
+}
+
+/* Theme-specific overlay blur and tint */
+body.dark-theme-variables .modal {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+}
+
+body:not(.dark-theme-variables) .modal {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(3px) saturate(120%);
 }
 
 .modal.hidden {
