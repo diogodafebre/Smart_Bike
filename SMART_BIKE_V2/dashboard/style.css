@@ -108,7 +108,32 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-md);
+}
+
+/* Text buttons for Settings and Profile */
+.btn-icon {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: var(--font-weight-semibold);
+  background: var(--surface-bg);
+  border: 0.5px solid var(--border-light);
+  color: var(--text-primary);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all 200ms ease;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.btn-icon:hover {
+  background: var(--secondary-bg);
+  box-shadow: var(--shadow-sm);
+  border-color: var(--accent-color);
+}
+
+.btn-icon:active {
+  transform: scale(0.98);
 }
 
 /* Theme toggle - Apple pill design */
@@ -969,6 +994,90 @@ strong {
 /* ============================================
    FORM ELEMENTS & INPUTS
    ============================================ */
+
+/* Settings modal sections */
+.settings-section {
+  margin-bottom: var(--spacing-lg);
+  padding-bottom: var(--spacing-lg);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.settings-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.settings-section h4 {
+  margin: 0 0 var(--spacing-md) 0;
+  font-size: 0.875rem;
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) 0;
+}
+
+/* Theme radio buttons */
+.theme-radio {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border-color);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 200ms ease;
+  flex-shrink: 0;
+}
+
+.theme-radio:hover {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px rgba(152, 94, 255, 0.1);
+}
+
+.theme-radio:checked {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px rgba(152, 94, 255, 0.15);
+}
+
+/* Language buttons in settings */
+.lang-btn-settings {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--surface-bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-weight: var(--font-weight-medium);
+  font-size: 0.875rem;
+  transition: all 200ms ease;
+  flex: 1;
+}
+
+.lang-btn-settings:hover {
+  background: var(--secondary-bg);
+  border-color: var(--accent-color);
+}
+
+.lang-btn-settings.active {
+  background: var(--accent-color);
+  color: var(--text-inverse);
+  border-color: var(--accent-color);
+  box-shadow: var(--shadow-sm);
+}
+
+.light-indicator, .dark-indicator {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
 
 /* Checkbox styling - Apple-style */
 input[type="checkbox"] {

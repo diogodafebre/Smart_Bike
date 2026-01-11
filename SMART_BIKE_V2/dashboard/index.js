@@ -15,7 +15,6 @@ let replayData = null;  // Parsed replay data
 let replayIndex = 0;  // Current replay position
 
 // UI refs
-const themeToggler = document.querySelector(".theme-toggler");
 const latestPressureEl = document.getElementById("latest_pressure");
 const sampleCountEl = document.getElementById("sample_count");
 const durationEl = document.getElementById("duration");
@@ -32,7 +31,16 @@ const xFieldSel = document.getElementById('x_field');
 const yFieldSel = document.getElementById('y_field');
 const y2FieldSel = document.getElementById('y2_field');
 const dualAxisChk = document.getElementById('dual_axis');
-const langButtons = document.querySelectorAll('.lang-btn');
+// Modal refs
+const profileModal = document.getElementById('profile_modal');
+const profileClose = document.getElementById('profile_close');
+const settingsModal = document.getElementById('settings_modal');
+const settingsClose = document.getElementById('settings_close');
+const btnProfile = document.getElementById('btn_profile');
+const btnSettings = document.getElementById('btn_settings');
+// Settings elements
+const themeRadios = document.querySelectorAll('.theme-radio');
+const langButtonsSettings = document.querySelectorAll('.lang-btn-settings');
 // Layout & Runner management refs
 const runnerFilterSel = document.getElementById('runner_filter');
 const renameInput = document.getElementById('rename_input');
@@ -70,9 +78,6 @@ const btnRunControl = document.getElementById('btn_run_control');
 const btnReplayCSV = document.getElementById('btn_replay_csv');
 
 // Profile / Settings UI
-const btnProfile = document.getElementById('btn_profile');
-const profileModal = document.getElementById('profile_modal');
-const profileClose = document.getElementById('profile_close');
 const profileSelect = document.getElementById('profile_select');
 const btnSetActive = document.getElementById('btn_set_active');
 const newRunnerName = document.getElementById('new_runner_name');
@@ -95,6 +100,27 @@ function showProfileModal() {
   refreshProfilesUI();
 }
 function hideProfileModal() { if (profileModal) profileModal.classList.add('hidden'); }
+
+function showSettingsModal() {
+  if (!settingsModal) return;
+  settingsModal.classList.remove('hidden');
+  updateSettingsUI();
+}
+function hideSettingsModal() { if (settingsModal) settingsModal.classList.add('hidden'); }
+
+function updateSettingsUI() {
+  // Set active theme radio
+  const isDark = document.body.classList.contains('dark-theme-variables');
+  themeRadios.forEach(radio => {
+    if (isDark && radio.value === 'dark') radio.checked = true;
+    else if (!isDark && radio.value === 'light') radio.checked = true;
+  });
+  
+  // Set active language button
+  langButtonsSettings.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.lang === currentLang);
+  });
+}
 
 async function apiGetJSON(url) {
   const resp = await fetch(url);
@@ -249,6 +275,8 @@ async function loadActiveProfileAndRuns() {
 
 btnProfile && btnProfile.addEventListener('click', showProfileModal);
 profileClose && profileClose.addEventListener('click', hideProfileModal);
+btnSettings && btnSettings.addEventListener('click', showSettingsModal);
+settingsClose && settingsClose.addEventListener('click', hideSettingsModal);
 profileSelect && profileSelect.addEventListener('change', refreshRunsLists);
 
 btnSetActive && btnSetActive.addEventListener('click', async () => {
@@ -991,13 +1019,9 @@ function loadThemePreference() {
   // Default to light theme if no preference
   if (savedTheme === 'dark') {
     document.body.classList.add('dark-theme-variables');
-    themeToggler.querySelector('span:nth-child(1)').classList.remove('active');
-    themeToggler.querySelector('span:nth-child(2)').classList.add('active');
   } else {
     // Ensure light theme is active (default)
     document.body.classList.remove('dark-theme-variables');
-    themeToggler.querySelector('span:nth-child(1)').classList.add('active');
-    themeToggler.querySelector('span:nth-child(2)').classList.remove('active');
   }
   applyChartTheme();
 }
@@ -1007,12 +1031,22 @@ function saveThemePreference() {
   localStorage.setItem('theme', isDark ? 'dark' : 'light');
 }
 
-themeToggler.addEventListener('click', () => {
-  document.body.classList.toggle('dark-theme-variables');
-  themeToggler.querySelector('span:nth-child(1)').classList.toggle('active');
-  themeToggler.querySelector('span:nth-child(2)').classList.toggle('active');
+function setTheme(theme) {
+  if (theme === 'dark') {
+    document.body.classList.add('dark-theme-variables');
+  } else {
+    document.body.classList.remove('dark-theme-variables');
+  }
   applyChartTheme();
   saveThemePreference();
+  updateSettingsUI();
+}
+
+// Theme radio handlers
+themeRadios.forEach(radio => {
+  radio.addEventListener('change', () => {
+    if (radio.checked) setTheme(radio.value);
+  });
 });
 
 // Init
@@ -1052,7 +1086,7 @@ window.addEventListener('load', () => {
       updateRunButton();
     }
   });
-  langButtons.forEach(btn => btn.addEventListener('click', () => setLanguage(btn.dataset.lang)));
+  langButtonsSettings.forEach(btn => btn.addEventListener('click', () => setLanguage(btn.dataset.lang)));
   setLanguage(loadLangPref());
   
   // Sidebar nav
@@ -2169,7 +2203,7 @@ const I18N = {
     size_l: 'Large',
     // Profile modal
     profile_settings: 'Profile / Settings',
-    profile_title: 'Profile & Sorting',
+    profile_title: 'Profile',
     active_profile: 'Active profile',
     set_active: 'Set Active',
     new_runner_placeholder: 'New runner name',
@@ -2181,6 +2215,14 @@ const I18N = {
     rename_run: 'Rename',
     delete_run: 'Delete',
     download_all: 'Download All CSV',
+    // Settings modal
+    settings_title: 'Settings',
+    theme_label: 'Theme',
+    light_mode: 'Light Mode',
+    dark_mode: 'Dark Mode',
+    language_label: 'Language',
+    move_to_unsorted: '← Move to unsorted',
+    active_profile_label: 'Profile:',
   },
   fr: {
     live_mode: 'Mode Live',
@@ -2248,7 +2290,7 @@ const I18N = {
     size_l: 'Grand',
     // Profile modal
     profile_settings: 'Profil / Paramètres',
-    profile_title: 'Profil & Tri',
+    profile_title: 'Profil',
     active_profile: 'Profil actif',
     set_active: 'Définir actif',
     new_runner_placeholder: 'Nom du nouveau coureur',
@@ -2260,6 +2302,14 @@ const I18N = {
     rename_run: 'Renommer',
     delete_run: 'Supprimer',
     download_all: 'Télécharger tous les CSV',
+    // Settings modal
+    settings_title: 'Paramètres',
+    theme_label: 'Thème',
+    light_mode: 'Mode clair',
+    dark_mode: 'Mode sombre',
+    language_label: 'Langue',
+    move_to_unsorted: '← Déplacer vers non trié',
+    active_profile_label: 'Profil :',
   },
   de: {
     live_mode: 'Live-Modus',
@@ -2327,7 +2377,7 @@ const I18N = {
     size_l: 'Groß',
     // Profile modal
     profile_settings: 'Profil / Einstellungen',
-    profile_title: 'Profil & Sortierung',
+    profile_title: 'Profil',
     active_profile: 'Aktives Profil',
     set_active: 'Aktivieren',
     new_runner_placeholder: 'Neuer Fahrername',
@@ -2339,6 +2389,14 @@ const I18N = {
     rename_run: 'Umbenennen',
     delete_run: 'Löschen',
     download_all: 'Alle CSV herunterladen',
+    // Settings modal
+    settings_title: 'Einstellungen',
+    theme_label: 'Design',
+    light_mode: 'Heller Modus',
+    dark_mode: 'Dunkler Modus',
+    language_label: 'Sprache',
+    move_to_unsorted: '← In ungesmessene verschieben',
+    active_profile_label: 'Profil:',
   }
 };
 
@@ -2352,7 +2410,7 @@ function setLanguage(lang) {
   currentLang = lang;
   localStorage.setItem('lang', lang);
   applyTranslations(lang);
-  langButtons.forEach(btn => {
+  langButtonsSettings.forEach(btn => {
     btn.classList.toggle('active', btn.dataset.lang === lang);
   });
 }

@@ -51,16 +51,12 @@
       </div>
       
       <div class="topbar-actions">
-        <div class="theme-toggler">
-          <span class="active">☀️</span>
-          <span>🌙</span>
-        </div>
-        <div class="lang-switch" role="group" aria-label="Language">
-          <button class="lang-btn" data-lang="en">EN</button>
-          <button class="lang-btn" data-lang="fr">FR</button>
-          <button class="lang-btn" data-lang="de">DE</button>
-        </div>
-        <button id="btn_profile" class="btn btn-profile" data-i18n="profile_settings">Profile / Settings</button>
+        <button id="btn_profile" class="btn btn-icon" title="Profile" aria-label="Profile" data-i18n="profile_title">
+          Profile
+        </button>
+        <button id="btn_settings" class="btn btn-icon" title="Settings" aria-label="Settings" data-i18n="settings_title">
+          Settings
+        </button>
       </div>
     </header>
 
@@ -108,11 +104,11 @@
     </main>
   </div>
 
-    <!-- Profile / Settings Modal -->
+    <!-- Profile Modal -->
     <div id="profile_modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="profile_title">
       <div class="modal-content">
         <div class="modal-header">
-          <h3 id="profile_title" data-i18n="profile_title">Profile & Sorting</h3>
+          <h3 id="profile_title" data-i18n="profile_title">Profile</h3>
           <button id="profile_close" class="modal-close" aria-label="Close">×</button>
         </div>
         <div class="modal-body">
@@ -145,6 +141,40 @@
                 <button id="btn_download_profile_run" class="btn" data-i18n="download_run" style="background:#28a745">Download</button>
                 <button id="btn_delete_profile_run" class="btn" data-i18n="delete_run" style="background:#dc3545">Delete</button>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings_modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings_title">
+      <div class="modal-content" style="max-width: 400px;">
+        <div class="modal-header">
+          <h3 id="settings_title" data-i18n="settings_title">Settings</h3>
+          <button id="settings_close" class="modal-close" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="settings-section">
+            <h4 data-i18n="theme_label">Theme</h4>
+            <div class="settings-row">
+              <label data-i18n="light_mode">Light Mode</label>
+              <span class="light-indicator">☀️</span>
+              <input type="radio" name="theme" value="light" id="theme_light" class="theme-radio" />
+            </div>
+            <div class="settings-row">
+              <label data-i18n="dark_mode">Dark Mode</label>
+              <span class="dark-indicator">🌙</span>
+              <input type="radio" name="theme" value="dark" id="theme_dark" class="theme-radio" />
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h4 data-i18n="language_label">Language</h4>
+            <div class="settings-row">
+              <button class="lang-btn-settings" data-lang="en">English</button>
+              <button class="lang-btn-settings" data-lang="fr">Français</button>
+              <button class="lang-btn-settings" data-lang="de">Deutsch</button>
             </div>
           </div>
         </div>
