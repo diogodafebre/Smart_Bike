@@ -19,17 +19,14 @@
 #include "freertos/task.h"
 #include "sdmmc_cmd.h"
 
-// GPIO 0 correspond au Canal 0 de l'ADC 1
 #define ADC1_CHAN0 ADC_CHANNEL_0
-// GPIO 5 correspond au Canal 0 de l'ADC 2
-#define ADC2_CHAN0 ADC_CHANNEL_0
+#define ADC1_CHAN4 ADC_CHANNEL_4
 
 #define FSR_COUNT 4
 #define FSR_SEL_A_GPIO GPIO_NUM_3
-#define FSR_SEL_B_GPIO GPIO_NUM_4
+#define FSR_SEL_B_GPIO GPIO_NUM_5
 
 extern adc_oneshot_unit_handle_t adc1_handle;
-extern adc_oneshot_unit_handle_t adc2_handle;
 
 typedef struct {
     int fsr_a_values[FSR_COUNT];
