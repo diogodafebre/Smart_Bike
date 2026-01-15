@@ -27,6 +27,44 @@ static httpd_handle_t server = NULL;
 // Active runner profile (persisted in NVS)
 static char g_active_runner[64] = "";
 static bool g_calibration_mode = false;
+// WiFi/AP activity tracking
+static volatile int g_station_count = 0;
+static uint64_t g_last_live_ms = 0;
+static int8_t g_current_tx_power = -1; // cached to avoid redundant set calls
+static volatile int g_active_transfers = 0; // boost while >0
+
+// TX power levels (ESP-IDF uses 0.25 dBm steps)
+#define TX_POWER_MAX 84  // ~21 dBm (reported/logged as ~20 dBm)
+#define TX_POWER_LOW 40  // ~10 dBm
+
+static void adjust_tx_power(void) {
+  // Decide power based on station presence, recent activity, and active transfers
+  int8_t desired = TX_POWER_LOW;
+  uint64_t now = cpt_get_time_ms();
+  const uint64_t active_window_ms = 5000; // treat activity within last 5s as active
+
+  if (g_active_transfers > 0) {
+    desired = TX_POWER_MAX; // always boost during ongoing downloads
+  } else if (g_station_count > 0) {
+    if (g_last_live_ms != 0 && (now - g_last_live_ms) <= active_window_ms) {
+      desired = TX_POWER_MAX; // active streaming
+    } else {
+      desired = TX_POWER_LOW; // connected but idle
+    }
+  } else {
+    desired = TX_POWER_LOW; // no stations, keep low
+  }
+
+  if (desired != g_current_tx_power) {
+    esp_err_t err = esp_wifi_set_max_tx_power(desired);
+    if (err == ESP_OK) {
+      g_current_tx_power = desired;
+      ESP_LOGI(TAG, "Adjusted TX power to %d", desired);
+    } else {
+      ESP_LOGW(TAG, "Failed to adjust TX power: %s", esp_err_to_name(err));
+    }
+  }
+}
 
 static bool is_safe_name(const char* s) {
   // Allow letters, digits, underscore, hyphen, dot
@@ -137,9 +175,15 @@ static void urlDecode(char* str) {
 
 // Stream file with proper headers
 static esp_err_t streamFile(httpd_req_t *req, const char* filepath, bool isGz) {
+  // Boost TX power during file serving (website loads, assets)
+  g_active_transfers++;
+  esp_wifi_set_max_tx_power(TX_POWER_MAX);
+  g_current_tx_power = TX_POWER_MAX;
+
   FILE* f = fopen(filepath, "r");
   if (!f) {
     ESP_LOGE(TAG, "Failed to open file: %s", filepath);
+    g_active_transfers--; adjust_tx_power();
     return ESP_FAIL;
   }
 
@@ -174,6 +218,7 @@ static esp_err_t streamFile(httpd_req_t *req, const char* filepath, bool isGz) {
       if (httpd_resp_send_chunk(req, buf, n) != ESP_OK) {
         fclose(f);
         ESP_LOGE(TAG, "Failed to send chunk for %s", filepath);
+        g_active_transfers--; adjust_tx_power();
         return ESP_FAIL;
       }
       total += n;
@@ -186,6 +231,7 @@ static esp_err_t streamFile(httpd_req_t *req, const char* filepath, bool isGz) {
   httpd_resp_send_chunk(req, NULL, 0);
   fclose(f);
   ESP_LOGI(TAG, "Sent %s (%d bytes)", filepath, total);
+  g_active_transfers--; adjust_tx_power();
   return ESP_OK;
 }
 
@@ -326,15 +372,22 @@ static esp_err_t ls_handler(httpd_req_t *req) {
 
 // HTTP GET handler for /download
 static esp_err_t download_handler(httpd_req_t *req) {
+  // Boost TX power for the duration of this transfer
+  g_active_transfers++;
+  esp_wifi_set_max_tx_power(TX_POWER_MAX);
+  g_current_tx_power = TX_POWER_MAX;
+
   char query[256];
   if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK) {
     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "missing f param");
+    g_active_transfers--; adjust_tx_power();
     return ESP_FAIL;
   }
   
   char param[128];
   if (httpd_query_key_value(query, "f", param, sizeof(param)) != ESP_OK) {
     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "missing f param");
+    g_active_transfers--; adjust_tx_power();
     return ESP_FAIL;
   }
   
@@ -347,12 +400,14 @@ static esp_err_t download_handler(httpd_req_t *req) {
   
   if (!fileExists(filepath)) {
     httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "not found");
+    g_active_transfers--; adjust_tx_power();
     return ESP_FAIL;
   }
   
   FILE* f = fopen(filepath, "r");
   if (!f) {
     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "open failed");
+    g_active_transfers--; adjust_tx_power();
     return ESP_FAIL;
   }
   
@@ -364,6 +419,7 @@ static esp_err_t download_handler(httpd_req_t *req) {
     if (n > 0) {
       if (httpd_resp_send_chunk(req, buf, n) != ESP_OK) {
         fclose(f);
+        g_active_transfers--; adjust_tx_power();
         return ESP_FAIL;
       }
     }
@@ -371,6 +427,7 @@ static esp_err_t download_handler(httpd_req_t *req) {
   }
   httpd_resp_send_chunk(req, NULL, 0);
   fclose(f);
+  g_active_transfers--; adjust_tx_power();
   return ESP_OK;
 }
 
@@ -425,6 +482,9 @@ static esp_err_t api_live_handler(httpd_req_t *req) {
   httpd_resp_set_type(req, "application/json");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_send(req, json, len);
+  // Mark activity and adjust TX power
+  g_last_live_ms = timestamp_ms;
+  adjust_tx_power();
   return ESP_OK;
 }
 
@@ -812,17 +872,24 @@ static esp_err_t api_calibration_post(httpd_req_t *req) {
 
 // API endpoint: /api/runs/<filename> - Download a specific RUN file from SD
 static esp_err_t api_run_file_handler(httpd_req_t *req) {
+  // Boost TX power for the duration of this transfer
+  g_active_transfers++;
+  esp_wifi_set_max_tx_power(TX_POWER_MAX);
+  g_current_tx_power = TX_POWER_MAX;
+
   // Extract path from URI (e.g., /api/runs/RUN1.CSV or /api/runs/PROFILE/RUN1.CSV)
   const char* uri = req->uri;
   const char* pathStart = strstr(uri, "/api/runs/");
   if (!pathStart) {
     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid URI");
+    g_active_transfers--; adjust_tx_power();
     return ESP_FAIL;
   }
   pathStart += strlen("/api/runs/");
   
   if (strlen(pathStart) == 0) {
     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing filename");
+    g_active_transfers--; adjust_tx_power();
     return ESP_FAIL;
   }
   
@@ -839,6 +906,7 @@ static esp_err_t api_run_file_handler(httpd_req_t *req) {
   if (!f) {
     ESP_LOGE(TAG, "File not found: %s", filepath);
     httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+    g_active_transfers--; adjust_tx_power();
     return ESP_FAIL;
   }
   
@@ -851,6 +919,7 @@ static esp_err_t api_run_file_handler(httpd_req_t *req) {
     if (n > 0) {
       if (httpd_resp_send_chunk(req, buf, n) != ESP_OK) {
         fclose(f);
+        g_active_transfers--; adjust_tx_power();
         return ESP_FAIL;
       }
     }
@@ -858,6 +927,7 @@ static esp_err_t api_run_file_handler(httpd_req_t *req) {
   httpd_resp_send_chunk(req, NULL, 0);
   fclose(f);
   ESP_LOGI(TAG, "Sent file: %s", filepath);
+  g_active_transfers--; adjust_tx_power();
   return ESP_OK;
 }
 
@@ -910,10 +980,14 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
     wifi_event_ap_staconnected_t* event = (wifi_event_ap_staconnected_t*) event_data;
     ESP_LOGI(TAG, "Station " MACSTR " joined, AID=%d",
              MAC2STR(event->mac), event->aid);
+    g_station_count++;
+    adjust_tx_power();
   } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
     wifi_event_ap_stadisconnected_t* event = (wifi_event_ap_stadisconnected_t*) event_data;
     ESP_LOGI(TAG, "Station " MACSTR " left, AID=%d",
              MAC2STR(event->mac), event->aid);
+    if (g_station_count > 0) g_station_count--;
+    adjust_tx_power();
   }
 }
 
@@ -944,14 +1018,13 @@ static void init_wifi_ap(void) {
   ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
   ESP_ERROR_CHECK(esp_wifi_start());
 
-  // Set maximum TX power
-  esp_err_t power_err = esp_wifi_set_max_tx_power(84);
+  // Start with low TX power until activity is detected
+  esp_err_t power_err = esp_wifi_set_max_tx_power(TX_POWER_LOW);
   if (power_err == ESP_OK) {
-    int8_t power;
-    esp_wifi_get_max_tx_power(&power);
-    ESP_LOGI(TAG, "WiFi TX power set to maximum: %d (20 dBm)", power);
+    g_current_tx_power = TX_POWER_LOW;
+    ESP_LOGI(TAG, "WiFi TX power initialized to %d (~10 dBm)", TX_POWER_LOW);
   } else {
-    ESP_LOGW(TAG, "Failed to set WiFi TX power: %s", esp_err_to_name(power_err));
+    ESP_LOGW(TAG, "Failed to initialize WiFi TX power: %s", esp_err_to_name(power_err));
   }
 
   ESP_LOGI(TAG, "WiFi AP started. SSID: %s", AP_SSID);

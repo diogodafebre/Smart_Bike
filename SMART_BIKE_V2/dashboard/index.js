@@ -6,6 +6,7 @@ let sampleCount = 0;
 let liveMode = true;
 let currentRun = null; // { name, rows, fields }
 let pollingTimer = null;  // For HTTP polling
+let pollingIntervalMs = 100; // Dynamic polling interval
 const LIVE_WINDOW_SECONDS = 60;  // 60-second rolling window for live data
 let isPlottingCSV = false;  // Track if we're plotting CSV data vs live data
 let runActive = false; // Track if device is currently recording
@@ -632,6 +633,15 @@ async function startHttpPolling() {
       if (calibrationModeToggle) calibrationModeToggle.checked = calibrationMode;
       applyCalibrationUI(calibrationMode);
 
+      // Adjust polling interval based on state
+      const desiredInterval = isCalib ? 50 : (data.active ? 100 : 1000);
+      if (desiredInterval !== pollingIntervalMs) {
+        pollingIntervalMs = desiredInterval;
+        if (pollingTimer) clearInterval(pollingTimer);
+        pollingTimer = setInterval(fetchLiveData, pollingIntervalMs);
+        console.log(`Polling interval set to ${pollingIntervalMs} ms`);
+      }
+
       let sensorValues = null;
       let rawAdc = null;
       if (isCalib && Array.isArray(data.raw_adc) && data.raw_adc.length === 8) {
@@ -664,9 +674,9 @@ async function startHttpPolling() {
     }
   };
   
-  // Start polling immediately and then every 100ms
+  // Start polling immediately and then at dynamic interval
   fetchLiveData();
-  pollingTimer = setInterval(fetchLiveData, 100);
+  pollingTimer = setInterval(fetchLiveData, pollingIntervalMs);
   console.log('HTTP polling started');
 }
 
@@ -678,6 +688,15 @@ function stopHttpPolling() {
     console.log('HTTP polling stopped');
   }
 }
+
+// Pause polling when the tab is hidden to save device power and browser CPU/GPU
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    stopHttpPolling();
+  } else if (liveMode) {
+    startHttpPolling();
+  }
+});
 
 function updateRunButton() {
   if (!btnRunControl) return;
