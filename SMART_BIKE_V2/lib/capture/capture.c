@@ -49,6 +49,7 @@ uint32_t cpt_run_id = 0;
 typedef struct {
     complimentary_angle_t angles;
     fsr_values_t fsr_values;
+    int fsr_raw[8];  // Raw ADC values: B0-3 then A0-3
 } cpt_data_t;
 cpt_data_t g_cpt_data;
 
@@ -190,9 +191,16 @@ esp_err_t cpt_task_icm() {
 }
 
 esp_err_t cpt_task_fsr() {
-    esp_err_t ret;
-    ret = fsr_read_calibrated(&g_cpt_data.fsr_values);
-    ESP_RETURN_ON_ERROR(ret, TAG, "FSR read values failed");
+    // Capture raw ADC snapshot for calibration mode
+    fsr_values_t raw_values = {0};
+    ESP_RETURN_ON_ERROR(fsr_read(&raw_values), TAG, "FSR raw read failed");
+    for (int i = 0; i < FSR_COUNT; i++) {
+        g_cpt_data.fsr_raw[i] = raw_values.fsr_b_values[i];
+        g_cpt_data.fsr_raw[i + 4] = raw_values.fsr_a_values[i];
+    }
+
+    // Populate calibrated values for normal visualization/logging
+    ESP_RETURN_ON_ERROR(fsr_read_calibrated(&g_cpt_data.fsr_values), TAG, "FSR read values failed");
     return ESP_OK;
 }
 
@@ -250,6 +258,13 @@ bool cpt_is_running(void) {
 
 uint32_t cpt_get_run_id(void) {
     return cpt_run_id;
+}
+
+void cpt_get_latest_raw_adc(int raw[8]) {
+    if (!raw) return;
+    for (int i = 0; i < 8; i++) {
+        raw[i] = g_cpt_data.fsr_raw[i];
+    }
 }
 
 void cpt_get_latest_voltages(float voltages[8]) {

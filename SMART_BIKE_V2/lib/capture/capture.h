@@ -61,6 +61,7 @@ void cpt_start_task(void);
 bool cpt_is_running(void);
 uint32_t cpt_get_run_id(void);
 void cpt_get_latest_voltages(float voltages[8]);
+void cpt_get_latest_raw_adc(int raw[8]);
 uint64_t cpt_get_time_ms(void);
 void cpt_get_latest_angles(float* roll, float* pitch);
 

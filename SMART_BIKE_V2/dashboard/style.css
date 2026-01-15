@@ -396,6 +396,51 @@ body:not(.dark-theme-variables) .btn:active {
   overflow: hidden;
 }
 
+.calibration-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+  background: var(--chart-bg);
+  border-radius: var(--radius-lg);
+  height: 100%;
+}
+
+.calibration-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--spacing-md);
+  background: var(--surface-bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+
+.calibration-cell.has-data {
+  border-color: var(--accent-color);
+  box-shadow: var(--shadow-base);
+  transform: translateY(-1px);
+}
+
+.calibration-cell .cell-label {
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.calibration-cell .cell-value {
+  font-size: 1.4rem;
+  font-weight: var(--font-weight-bold);
+  color: var(--text-primary);
+}
+
+.calibration-cell .cell-subvalue {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
 /* Make handlebar viewer transparent so card background shows through */
 #handlebar_container {
   background: transparent !important;
@@ -1127,6 +1172,13 @@ body:not(.dark-theme-variables) .modal {
   align-items: center;
   gap: var(--spacing-md);
   padding: var(--spacing-sm) 0;
+}
+
+.settings-hint {
+  margin: 0.25rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  line-height: 1.4;
 }
 
 /* Theme radio buttons */

@@ -1,5 +1,6 @@
 // Minimal AP (open) + SPIFFS static web server - ESP-IDF version
 #include <string.h>
+#include <strings.h>
 #include <sys/param.h>
 #include <sys/stat.h>
 #include <dirent.h>
@@ -25,6 +26,7 @@ static httpd_handle_t server = NULL;
 
 // Active runner profile (persisted in NVS)
 static char g_active_runner[64] = "";
+static bool g_calibration_mode = false;
 
 static bool is_safe_name(const char* s) {
   // Allow letters, digits, underscore, hyphen, dot
@@ -43,6 +45,26 @@ static void nvs_load_active_runner(void) {
     if (err != ESP_OK) {
       g_active_runner[0] = '\0';
     }
+    nvs_close(h);
+  }
+}
+
+static void nvs_load_calibration_mode(void) {
+  nvs_handle_t h;
+  if (nvs_open("storage", NVS_READONLY, &h) == ESP_OK) {
+    uint8_t flag = 0;
+    if (nvs_get_u8(h, "calib_mode", &flag) == ESP_OK) {
+      g_calibration_mode = (flag != 0);
+    }
+    nvs_close(h);
+  }
+}
+
+static void nvs_save_calibration_mode(bool enabled) {
+  nvs_handle_t h;
+  if (nvs_open("storage", NVS_READWRITE, &h) == ESP_OK) {
+    nvs_set_u8(h, "calib_mode", enabled ? 1 : 0);
+    nvs_commit(h);
     nvs_close(h);
   }
 }
@@ -354,30 +376,52 @@ static esp_err_t download_handler(httpd_req_t *req) {
 
 // API endpoint: /api/live - Returns current ADC sensor data as JSON
 static esp_err_t api_live_handler(httpd_req_t *req) {
-  char json[512];
-  
-  // Get latest sensor data from capture library
-  float voltages[8];
-  cpt_get_latest_voltages(voltages);
+  char json[1024];
+
   float roll = 0.0f, pitch = 0.0f;
   cpt_get_latest_angles(&roll, &pitch);
   uint64_t timestamp_ms = cpt_get_time_ms();
   bool active = cpt_is_running();
   uint32_t run_id = cpt_get_run_id();
-  
-  // Build JSON with all 8 sensor values plus roll and pitch
-  int len = snprintf(json, sizeof(json),
-    "{\"timestamp\":%llu,\"active\":%s,\"run_id\":%lu,\"roll\":%.2f,\"pitch\":%.2f,\"sensors\":["
-    "%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f]}",
-    timestamp_ms,
-    active ? "true" : "false",
-    (unsigned long)run_id,
-    roll,
-    pitch,
-    voltages[0], voltages[1], voltages[2], voltages[3],
-    voltages[4], voltages[5], voltages[6], voltages[7]
-  );
-  
+
+  int len = 0;
+  if (g_calibration_mode) {
+    int raw_adc[8] = {0};
+    float raw_volt[8] = {0};
+    cpt_get_latest_raw_adc(raw_adc);
+    for (int i = 0; i < 8; i++) {
+      raw_volt[i] = (raw_adc[i] * 3.3f) / 4095.0f;
+    }
+
+    len = snprintf(json, sizeof(json),
+      "{\"timestamp\":%llu,\"active\":%s,\"run_id\":%lu,\"roll\":%.2f,\"pitch\":%.2f,\"calib_mode\":true,"
+      "\"raw_adc\":[%d,%d,%d,%d,%d,%d,%d,%d],"
+      "\"raw_volt\":[%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f]}",
+      timestamp_ms,
+      active ? "true" : "false",
+      (unsigned long)run_id,
+      roll,
+      pitch,
+      raw_adc[0], raw_adc[1], raw_adc[2], raw_adc[3], raw_adc[4], raw_adc[5], raw_adc[6], raw_adc[7],
+      raw_volt[0], raw_volt[1], raw_volt[2], raw_volt[3], raw_volt[4], raw_volt[5], raw_volt[6], raw_volt[7]
+    );
+  } else {
+    float voltages[8];
+    cpt_get_latest_voltages(voltages);
+
+    len = snprintf(json, sizeof(json),
+      "{\"timestamp\":%llu,\"active\":%s,\"run_id\":%lu,\"roll\":%.2f,\"pitch\":%.2f,\"calib_mode\":false,\"sensors\":["
+      "%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f]}",
+      timestamp_ms,
+      active ? "true" : "false",
+      (unsigned long)run_id,
+      roll,
+      pitch,
+      voltages[0], voltages[1], voltages[2], voltages[3],
+      voltages[4], voltages[5], voltages[6], voltages[7]
+    );
+  }
+
   httpd_resp_set_type(req, "application/json");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_send(req, json, len);
@@ -729,6 +773,43 @@ static esp_err_t api_active_runner_post(httpd_req_t *req) {
   return ESP_OK;
 }
 
+// API: GET/POST /api/calibration-mode
+static esp_err_t api_calibration_get(httpd_req_t *req) {
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  char out[64]; snprintf(out, sizeof(out), "{\"calib_mode\":%s}", g_calibration_mode ? "true" : "false");
+  httpd_resp_send(req, out, HTTPD_RESP_USE_STRLEN);
+  return ESP_OK;
+}
+
+static esp_err_t api_calibration_post(httpd_req_t *req) {
+  char buf[64]; int total = 0; int to_read = req->content_len;
+  while (to_read > 0 && total < (int)sizeof(buf) - 1) {
+    int r = httpd_req_recv(req, buf + total, to_read > (int)sizeof(buf) - 1 - total ? (int)sizeof(buf) - 1 - total : to_read);
+    if (r <= 0) {
+      break;
+    }
+    total += r;
+    to_read -= r;
+  }
+  buf[total] = '\0';
+
+  char* mp = strstr(buf, "mode=");
+  if (!mp) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "missing mode"); return ESP_FAIL; }
+
+  char val[16] = {0};
+  sscanf(mp, "mode=%15[^&]", val);
+  bool enable = (strcasecmp(val, "true") == 0 || strcmp(val, "1") == 0 || strcasecmp(val, "on") == 0);
+  g_calibration_mode = enable;
+  nvs_save_calibration_mode(g_calibration_mode);
+
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  char out[80]; snprintf(out, sizeof(out), "{\"ok\":true,\"calib_mode\":%s}", g_calibration_mode ? "true" : "false");
+  httpd_resp_send(req, out, HTTPD_RESP_USE_STRLEN);
+  return ESP_OK;
+}
+
 // API endpoint: /api/runs/<filename> - Download a specific RUN file from SD
 static esp_err_t api_run_file_handler(httpd_req_t *req) {
   // Extract path from URI (e.g., /api/runs/RUN1.CSV or /api/runs/PROFILE/RUN1.CSV)
@@ -998,6 +1079,22 @@ static httpd_handle_t start_webserver(void) {
       .user_ctx  = NULL
     };
     httpd_register_uri_handler(server, &api_active_runner_post_uri);
+
+    httpd_uri_t api_calibration_get_uri = {
+      .uri       = "/api/calibration-mode",
+      .method    = HTTP_GET,
+      .handler   = api_calibration_get,
+      .user_ctx  = NULL
+    };
+    httpd_register_uri_handler(server, &api_calibration_get_uri);
+
+    httpd_uri_t api_calibration_post_uri = {
+      .uri       = "/api/calibration-mode",
+      .method    = HTTP_POST,
+      .handler   = api_calibration_post,
+      .user_ctx  = NULL
+    };
+    httpd_register_uri_handler(server, &api_calibration_post_uri);
     
     // Root handler
     httpd_uri_t root_uri = {
@@ -1090,6 +1187,7 @@ void web_init(void) {
 
   // Load persisted active runner
   nvs_load_active_runner();
+  nvs_load_calibration_mode();
 
   // Initialize SPIFFS
   init_spiffs();

@@ -13,6 +13,7 @@ let currentLang = 'en'; // Active language key
 let replayTimer = null;  // For CSV replay
 let replayData = null;  // Parsed replay data
 let replayIndex = 0;  // Current replay position
+let calibrationMode = false;  // Calibration mode flag
 
 // UI refs
 const latestPressureEl = document.getElementById("latest_pressure");
@@ -41,6 +42,7 @@ const btnSettings = document.getElementById('btn_settings');
 // Settings elements
 const themeRadios = document.querySelectorAll('.theme-radio');
 const langButtonsSettings = document.querySelectorAll('.lang-btn-settings');
+const calibrationModeToggle = document.getElementById('calibration_mode_toggle');
 // Layout & Runner management refs
 const runnerFilterSel = document.getElementById('runner_filter');
 const renameInput = document.getElementById('rename_input');
@@ -60,6 +62,8 @@ const pressureCardLeft = document.getElementById('chart_pressure_left_card');
 const corrCard = document.getElementById('corr_card');
 const threeCard = document.getElementById('three_card');
 const threeContainer = document.getElementById('three_container');
+const calibrationGrid = document.getElementById('calibration_grid');
+const calibrationCells = Array.from(document.querySelectorAll('.calibration-cell'));
 // Smoothing & downsample controls
 const smoothingSel = document.getElementById('smoothing_mode');
 const maWindowInp = document.getElementById('ma_window');
@@ -119,6 +123,29 @@ function updateSettingsUI() {
   // Set active language button
   langButtonsSettings.forEach(btn => {
     btn.classList.toggle('active', btn.dataset.lang === currentLang);
+  });
+  
+  // Set calibration mode checkbox
+  if (calibrationModeToggle) {
+    calibrationModeToggle.checked = calibrationMode;
+  }
+}
+
+function applyCalibrationUI(enabled) {
+  if (threeContainer) threeContainer.classList.toggle('hidden', enabled);
+  if (calibrationGrid) calibrationGrid.classList.toggle('hidden', !enabled);
+}
+
+function updateCalibrationGrid(rawAdc, voltages) {
+  if (!calibrationCells || calibrationCells.length === 0) return;
+  calibrationCells.forEach((cell, idx) => {
+    const adcEl = cell.querySelector('.cell-value');
+    const voltEl = cell.querySelector('.cell-subvalue');
+    const adcVal = rawAdc && Number.isFinite(rawAdc[idx]) ? rawAdc[idx] : null;
+    const voltVal = voltages && Number.isFinite(voltages[idx]) ? voltages[idx] : null;
+    if (adcEl) adcEl.textContent = adcVal !== null ? `${adcVal}` : '--';
+    if (voltEl) voltEl.textContent = voltVal !== null ? `${voltVal.toFixed(3)} V` : '--';
+    cell.classList.toggle('has-data', adcVal !== null || voltVal !== null);
   });
 }
 
@@ -598,16 +625,30 @@ async function startHttpPolling() {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       
       const data = await resp.json();
-      // data = { timestamp: <ms>, active: <bool>, run_id: <int>, roll: <deg>, pitch: <deg>, sensors: [v1,v2,...v8] }
+      // data = { timestamp: <ms>, active: <bool>, run_id: <int>, roll: <deg>, pitch: <deg>, calib_mode: <bool>, sensors: [v1,...v8] || raw_adc: [adc1,...adc8] }
       
-      if (data.sensors && data.sensors.length === 8) {
+      const isCalib = !!data.calib_mode;
+      calibrationMode = isCalib;
+      if (calibrationModeToggle) calibrationModeToggle.checked = calibrationMode;
+      applyCalibrationUI(calibrationMode);
+
+      let sensorValues = null;
+      let rawAdc = null;
+      if (isCalib && Array.isArray(data.raw_adc) && data.raw_adc.length === 8) {
+        rawAdc = data.raw_adc.map(v => Number(v));
+        sensorValues = rawAdc.map(v => (v * 3.3) / 4095); // Convert to volts for charts
+      } else if (!isCalib && Array.isArray(data.sensors) && data.sensors.length === 8) {
+        sensorValues = data.sensors.map(v => Number(v));
+      }
+      
+      if (sensorValues) {
         runActive = !!data.active;
         updateRunButton();
         if (data.active) {
           // Run is active, display data normally
           const roll = data.roll !== undefined ? data.roll : 0;
           const pitch = data.pitch !== undefined ? data.pitch : 0;
-          handleSensorData(data.sensors, data.timestamp, roll, pitch);
+          handleSensorData(sensorValues, data.timestamp, roll, pitch, rawAdc);
           noDataWarningShown = false;
         } else {
           // No run active - show message once
@@ -809,7 +850,7 @@ async function startReplay() {
         const point = replayData[replayIndex];
         const targetTime = replayStartPerf + (point.timeMs - firstPointTime);
         if (targetTime > nowPerf + 2) break; // tighter tolerance for 10ms spacing
-        handleSensorData(point.voltages, point.timeMs, point.roll, point.pitch);
+        handleSensorData(point.voltages, point.timeMs, point.roll, point.pitch, null);
         replayIndex++;
         processed++;
       }
@@ -845,7 +886,7 @@ function getXAxisRange(currentTime) {
 }
 
 // Handle incoming sensor data from ESP32
-function handleSensorData(voltages, timestamp, roll, pitch) {
+function handleSensorData(voltages, timestamp, roll, pitch, rawAdc = null) {
   if (!voltages || voltages.length !== 8) return;
   // Allow updates during replay (isPlottingCSV is true for replay) but not when in historical view
   if (!liveMode && !replayData) return;
@@ -876,12 +917,17 @@ function handleSensorData(voltages, timestamp, roll, pitch) {
   sampleCount += 1;
   if (sampleCountEl) sampleCountEl.textContent = `${sampleCount}`;
   if (durationEl) durationEl.textContent = `${seconds.toFixed(1)}s`;
+
+  const rawValues = Array.isArray(rawAdc) && rawAdc.length === 8 ? rawAdc : null;
+  if (calibrationMode) {
+    updateCalibrationGrid(rawValues, voltages);
+  }
   
   // Update sensor pressures for handlebar visualization (keep as voltages)
   sensorPressures = voltages.slice(); // Keep as voltage values (0-3.3V)
   
   // Update bike rotation if angles are provided
-  if (roll !== undefined && pitch !== undefined) {
+  if (!calibrationMode && roll !== undefined && pitch !== undefined) {
     updateBikeRotation(roll, pitch);
   }
 
@@ -1174,6 +1220,21 @@ function updateGraphModeUI() {
 
 // Init
 window.addEventListener('load', () => {
+  // Load calibration mode from API
+  (async () => {
+    try {
+      const data = await apiGetJSON('/api/calibration-mode');
+      calibrationMode = data.calib_mode || false;
+      if (calibrationModeToggle) {
+        calibrationModeToggle.checked = calibrationMode;
+      }
+      applyCalibrationUI(calibrationMode);
+    } catch (err) {
+      console.warn('Could not load calibration mode:', err);
+      calibrationMode = false;
+    }
+  })();
+  
   // Attach graph mode radio handlers
   const graphModeRadios = document.querySelectorAll('.graph-mode-radio');
   graphModeRadios.forEach(radio => {
@@ -1233,6 +1294,22 @@ window.addEventListener('load', () => {
   });
   langButtonsSettings.forEach(btn => btn.addEventListener('click', () => setLanguage(btn.dataset.lang)));
   setLanguage(loadLangPref());
+  
+  // Calibration mode toggle
+  if (calibrationModeToggle) {
+    calibrationModeToggle.addEventListener('change', async (e) => {
+      const enabled = e.target.checked;
+      try {
+        await apiPostForm('/api/calibration-mode', { mode: enabled ? 'true' : 'false' });
+        calibrationMode = enabled;
+        applyCalibrationUI(calibrationMode);
+        console.log('Calibration mode:', enabled ? 'ENABLED' : 'DISABLED');
+      } catch (err) {
+        console.error('Failed to set calibration mode:', err);
+        e.target.checked = !enabled;  // Revert checkbox
+      }
+    });
+  }
   
   // Sidebar nav
   navLinks.forEach(link => link.addEventListener('click', (e) => {
