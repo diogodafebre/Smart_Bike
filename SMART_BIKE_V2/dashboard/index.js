@@ -20,8 +20,19 @@ let calibrationMode = false;  // Calibration mode flag
 const latestPressureEl = document.getElementById("latest_pressure");
 const sampleCountEl = document.getElementById("sample_count");
 const durationEl = document.getElementById("duration");
-const chartDivRight = document.getElementById("pressure_chart_right");
-const chartDivLeft = document.getElementById("pressure_chart_left");
+
+// Default mode charts (6 separate charts)
+const chartRightTop = document.getElementById("chart_right_top");
+const chartRightBottom = document.getElementById("chart_right_bottom");
+const chartRightCompression = document.getElementById("chart_right_compression");
+const chartLeftTop = document.getElementById("chart_left_top");
+const chartLeftBottom = document.getElementById("chart_left_bottom");
+const chartLeftCompression = document.getElementById("chart_left_compression");
+
+// Calibration mode charts (2 charts with 4 sensors each)
+const chartCalibRight = document.getElementById("chart_calib_right");
+const chartCalibLeft = document.getElementById("chart_calib_left");
+
 const liveDataToggle = document.getElementById("live_data_toggle");
 const runSelectorContainer = document.getElementById("run_selector_container");
 const corrDiv = document.getElementById("corr_matrix");
@@ -58,8 +69,19 @@ const rowThresholds = document.getElementById('row_thresholds');
 const kpiGrid = document.getElementById('kpi_grid');
 const meanPressureEl = document.getElementById('mean_pressure');
 const maxPressureEl = document.getElementById('max_pressure');
-const pressureCardRight = document.getElementById('chart_pressure_right_card');
-const pressureCardLeft = document.getElementById('chart_pressure_left_card');
+
+// Default mode chart cards (6 individual charts)
+const chartRightTopCard = document.getElementById('chart_right_top_card');
+const chartRightBottomCard = document.getElementById('chart_right_bottom_card');
+const chartRightCompressionCard = document.getElementById('chart_right_compression_card');
+const chartLeftTopCard = document.getElementById('chart_left_top_card');
+const chartLeftBottomCard = document.getElementById('chart_left_bottom_card');
+const chartLeftCompressionCard = document.getElementById('chart_left_compression_card');
+
+// Calibration mode chart cards
+const chartCalibRightCard = document.getElementById('chart_calib_right_card');
+const chartCalibLeftCard = document.getElementById('chart_calib_left_card');
+
 const corrCard = document.getElementById('corr_card');
 const threeCard = document.getElementById('three_card');
 const threeContainer = document.getElementById('three_container');
@@ -135,6 +157,50 @@ function updateSettingsUI() {
 function applyCalibrationUI(enabled) {
   if (threeContainer) threeContainer.classList.toggle('hidden', enabled);
   if (calibrationGrid) calibrationGrid.classList.toggle('hidden', !enabled);
+  
+  // Show/hide appropriate charts
+  if (enabled) {
+    // Calibration mode: show 2-chart layout with 4 sensors each
+    if (chartCalibRightCard) chartCalibRightCard.style.display = '';
+    if (chartCalibLeftCard) chartCalibLeftCard.style.display = '';
+    
+    if (chartRightTopCard) chartRightTopCard.style.display = 'none';
+    if (chartRightBottomCard) chartRightBottomCard.style.display = 'none';
+    if (chartRightCompressionCard) chartRightCompressionCard.style.display = 'none';
+    if (chartLeftTopCard) chartLeftTopCard.style.display = 'none';
+    if (chartLeftBottomCard) chartLeftBottomCard.style.display = 'none';
+    if (chartLeftCompressionCard) chartLeftCompressionCard.style.display = 'none';
+    
+    // Only initialize if not already in calibration mode
+    if (!calibrationMode) {
+      initCalibrationCharts();
+    }
+  } else {
+    // Default mode: show 6 separate metric charts
+    if (chartCalibRightCard) chartCalibRightCard.style.display = 'none';
+    if (chartCalibLeftCard) chartCalibLeftCard.style.display = 'none';
+    
+    if (chartRightTopCard) chartRightTopCard.style.display = '';
+    if (chartRightBottomCard) chartRightBottomCard.style.display = '';
+    if (chartRightCompressionCard) chartRightCompressionCard.style.display = '';
+    if (chartLeftTopCard) chartLeftTopCard.style.display = '';
+    if (chartLeftBottomCard) chartLeftBottomCard.style.display = '';
+    if (chartLeftCompressionCard) chartLeftCompressionCard.style.display = '';
+    
+    // Only initialize if not already in default mode
+    if (calibrationMode) {
+      initDefaultCharts();
+    }
+  }
+  
+  // Clear data buffers when switching modes
+  t0 = null;
+  sampleCount = 0;
+  sumPressure = 0;
+  maxPressure = -Infinity;
+  sensorPressures = [0, 0, 0, 0, 0, 0, 0, 0];
+  sensorPressureHistory = [[], [], [], [], [], [], [], []];
+  sensorPressureAverages = [0, 0, 0, 0, 0, 0, 0, 0];
 }
 
 function updateCalibrationGrid(rawAdc, voltages) {
@@ -562,14 +628,14 @@ let oriYaw = 0, oriPitch = 0, oriRoll = 0; // radians from sensor data
 // Plotly time-series setup for two graphs
 const chartLayout = {
   title: '',
-  xaxis: { title: 'Time [s]', range: [-1, 30], autorange: false, gridcolor: '#333', color: '#ffffff' },
-  yaxis: { title: 'Voltage [V]', range: [-0.2, 3.5], autorange: false, gridcolor: '#333', color: '#ffffff' },
+  xaxis: { title: 'Time [s]', range: [-1, 30], autorange: false, gridcolor: '#e0e0e0', color: '#666' },
+  yaxis: { title: 'Voltage [V]', range: [-0.2, 3.5], autorange: false, gridcolor: '#e0e0e0', color: '#666' },
   margin: { t: 0, r: 0, b: 30, l: 40 },
   showlegend: true,
   legend: { x: 0, y: 1, orientation: 'h' },
-  plot_bgcolor: 'rgba(25, 25, 25, 1)',
-  paper_bgcolor: 'rgba(25, 25, 25, 1)',
-  font: { color: '#ffffff' },
+  plot_bgcolor: '#ffffff',
+  paper_bgcolor: '#ffffff',
+  font: { color: '#1d1d1f' },
   autosize: true
 };
 const chartConfig = { responsive: true, displayModeBar: false };
@@ -577,21 +643,81 @@ const chartConfig = { responsive: true, displayModeBar: false };
 // Colors for 4 sensors
 const colors = ['#2196f3', '#4caf50', '#ff9800', '#e91e63'];
 
-// Initialize right handle chart (sensors 1-4)
-Plotly.newPlot(chartDivRight, [
-  { x: [], y: [], mode: 'lines', line: { color: colors[0], width: 2 }, name: 'Sensor 1' },
-  { x: [], y: [], mode: 'lines', line: { color: colors[1], width: 2 }, name: 'Sensor 2' },
-  { x: [], y: [], mode: 'lines', line: { color: colors[2], width: 2 }, name: 'Sensor 3' },
-  { x: [], y: [], mode: 'lines', line: { color: colors[3], width: 2 }, name: 'Sensor 4' }
-], chartLayout, chartConfig);
+// Helper functions for aggregating sensor data
+// Sensor mapping:
+// Right grip: 0=Sensor1(top-right), 1=Sensor2(bottom-left), 2=Sensor3(top-left), 3=Sensor4(bottom-right)
+// Left grip: 4=Sensor5(top-right), 5=Sensor6(bottom-left), 6=Sensor7(top-left), 7=Sensor8(bottom-right)
+function getAggregatedSensorData(voltages) {
+  // Right handle aggregation
+  const rightTopSum = voltages[0] + voltages[2]; // Sensors 1 + 3
+  const rightBottomSum = voltages[1] + voltages[3]; // Sensors 2 + 4
+  const rightCompression = Math.abs(rightTopSum - rightBottomSum);
+  
+  // Left handle aggregation
+  const leftTopSum = voltages[4] + voltages[6]; // Sensors 5 + 7
+  const leftBottomSum = voltages[5] + voltages[7]; // Sensors 6 + 8
+  const leftCompression = Math.abs(leftTopSum - leftBottomSum);
+  
+  return {
+    rightTopSum,
+    rightBottomSum,
+    rightCompression,
+    leftTopSum,
+    leftBottomSum,
+    leftCompression
+  };
+}
 
-// Initialize left handle chart (sensors 5-8)
-Plotly.newPlot(chartDivLeft, [
-  { x: [], y: [], mode: 'lines', line: { color: colors[0], width: 2 }, name: 'Sensor 5' },
-  { x: [], y: [], mode: 'lines', line: { color: colors[1], width: 2 }, name: 'Sensor 6' },
-  { x: [], y: [], mode: 'lines', line: { color: colors[2], width: 2 }, name: 'Sensor 7' },
-  { x: [], y: [], mode: 'lines', line: { color: colors[3], width: 2 }, name: 'Sensor 8' }
-], chartLayout, chartConfig);
+function initCalibrationCharts() {
+  // Initialize right handle chart (sensors 1-4) - calibration mode
+  Plotly.newPlot(chartCalibRight, [
+    { x: [], y: [], mode: 'lines', line: { color: colors[0], width: 2 }, name: 'Sensor 1' },
+    { x: [], y: [], mode: 'lines', line: { color: colors[1], width: 2 }, name: 'Sensor 2' },
+    { x: [], y: [], mode: 'lines', line: { color: colors[2], width: 2 }, name: 'Sensor 3' },
+    { x: [], y: [], mode: 'lines', line: { color: colors[3], width: 2 }, name: 'Sensor 4' }
+  ], chartLayout, chartConfig);
+
+  // Initialize left handle chart (sensors 5-8) - calibration mode
+  Plotly.newPlot(chartCalibLeft, [
+    { x: [], y: [], mode: 'lines', line: { color: colors[0], width: 2 }, name: 'Sensor 5' },
+    { x: [], y: [], mode: 'lines', line: { color: colors[1], width: 2 }, name: 'Sensor 6' },
+    { x: [], y: [], mode: 'lines', line: { color: colors[2], width: 2 }, name: 'Sensor 7' },
+    { x: [], y: [], mode: 'lines', line: { color: colors[3], width: 2 }, name: 'Sensor 8' }
+  ], chartLayout, chartConfig);
+}
+
+function initDefaultCharts() {
+  // Initialize 6 separate charts for default mode
+  const singleTraceLayout = { ...chartLayout, showlegend: false };
+  
+  // Right handle charts
+  Plotly.newPlot(chartRightTop, [
+    { x: [], y: [], mode: 'lines', line: { color: '#1976d2', width: 3 }, name: 'Top Sum' }
+  ], singleTraceLayout, chartConfig);
+  
+  Plotly.newPlot(chartRightBottom, [
+    { x: [], y: [], mode: 'lines', line: { color: '#388e3c', width: 3 }, name: 'Bottom Sum' }
+  ], singleTraceLayout, chartConfig);
+  
+  Plotly.newPlot(chartRightCompression, [
+    { x: [], y: [], mode: 'lines', line: { color: '#c2185b', width: 3 }, name: 'Compression' }
+  ], singleTraceLayout, chartConfig);
+  
+  // Left handle charts
+  Plotly.newPlot(chartLeftTop, [
+    { x: [], y: [], mode: 'lines', line: { color: '#1976d2', width: 3 }, name: 'Top Sum' }
+  ], singleTraceLayout, chartConfig);
+  
+  Plotly.newPlot(chartLeftBottom, [
+    { x: [], y: [], mode: 'lines', line: { color: '#388e3c', width: 3 }, name: 'Bottom Sum' }
+  ], singleTraceLayout, chartConfig);
+  
+  Plotly.newPlot(chartLeftCompression, [
+    { x: [], y: [], mode: 'lines', line: { color: '#c2185b', width: 3 }, name: 'Compression' }
+  ], singleTraceLayout, chartConfig);
+}
+
+// Charts will be initialized in window.addEventListener('load') after DOM is ready
 
 // Stats accumulators for live mode
 let sumPressure = 0;
@@ -714,8 +840,8 @@ function stopReplay() {
   }
   replayData = null;
   replayIndex = 0;
-  replayBatchRight = [0, 1, 2, 3].map(() => ({ x: [], y: [] }));
-  replayBatchLeft = [0, 1, 2, 3].map(() => ({ x: [], y: [] }));
+  replayBatchRight = [0, 1, 2].map(() => ({ x: [], y: [] }));
+  replayBatchLeft = [0, 1, 2].map(() => ({ x: [], y: [] }));
   replayLastFlush = 0;
 }
 
@@ -766,11 +892,11 @@ async function startReplay() {
         const voltages = [];
         for (let j = 0; j < 4; j++) {
           const adcValue = parseInt(parts[3 + j]);
-          voltages.push(((adcValue * 3.3) / 4095) * 7);
+          voltages.push(((adcValue * 3.3) / 4095));
         }
         for (let j = 0; j < 4; j++) {
           const adcValue = parseInt(parts[7 + j]);
-          voltages.push(((adcValue * 3.3) / 4095) * 7);
+          voltages.push(((adcValue * 3.3) / 4095));
         }
         
         replayData.push({ timeMs, voltages, roll, pitch });
@@ -806,20 +932,15 @@ async function startReplay() {
       return;
     }
     
-    // Clear charts
-    Plotly.react(chartDivRight, [
-      { x: [], y: [], mode: 'lines', line: { color: colors[0], width: 2 }, name: 'Sensor 1' },
-      { x: [], y: [], mode: 'lines', line: { color: colors[1], width: 2 }, name: 'Sensor 2' },
-      { x: [], y: [], mode: 'lines', line: { color: colors[2], width: 2 }, name: 'Sensor 3' },
-      { x: [], y: [], mode: 'lines', line: { color: colors[3], width: 2 }, name: 'Sensor 4' }
-    ], chartLayout, chartConfig);
+    // Clear charts - always use default mode for replay (6 separate charts)
+    const singleTraceLayout = { ...chartLayout, showlegend: false };
     
-    Plotly.react(chartDivLeft, [
-      { x: [], y: [], mode: 'lines', line: { color: colors[0], width: 2 }, name: 'Sensor 5' },
-      { x: [], y: [], mode: 'lines', line: { color: colors[1], width: 2 }, name: 'Sensor 6' },
-      { x: [], y: [], mode: 'lines', line: { color: colors[2], width: 2 }, name: 'Sensor 7' },
-      { x: [], y: [], mode: 'lines', line: { color: colors[3], width: 2 }, name: 'Sensor 8' }
-    ], chartLayout, chartConfig);
+    Plotly.react(chartRightTop, [{ x: [], y: [], mode: 'lines', line: { color: '#2196f3', width: 2 }, name: 'Top Sum' }], singleTraceLayout, chartConfig);
+    Plotly.react(chartRightBottom, [{ x: [], y: [], mode: 'lines', line: { color: '#4caf50', width: 2 }, name: 'Bottom Sum' }], singleTraceLayout, chartConfig);
+    Plotly.react(chartRightCompression, [{ x: [], y: [], mode: 'lines', line: { color: '#e91e63', width: 2 }, name: 'Compression' }], singleTraceLayout, chartConfig);
+    Plotly.react(chartLeftTop, [{ x: [], y: [], mode: 'lines', line: { color: '#2196f3', width: 2 }, name: 'Top Sum' }], singleTraceLayout, chartConfig);
+    Plotly.react(chartLeftBottom, [{ x: [], y: [], mode: 'lines', line: { color: '#4caf50', width: 2 }, name: 'Bottom Sum' }], singleTraceLayout, chartConfig);
+    Plotly.react(chartLeftCompression, [{ x: [], y: [], mode: 'lines', line: { color: '#e91e63', width: 2 }, name: 'Compression' }], singleTraceLayout, chartConfig);
     
     // Don't reset to autorange - we'll use oscilloscope mode if enabled
     // For now just keep the current range from chartLayout
@@ -848,14 +969,15 @@ async function startReplay() {
     const stepReplay = () => {
       if (replayIndex >= replayData.length) {
         // Flush any buffered points before stopping
-        const hasBuffered = replayBatchRight.some(b => b.x.length > 0) || replayBatchLeft.some(b => b.x.length > 0);
+        const hasBuffered = Object.values(replayBatches).some(b => b.x.length > 0);
         if (hasBuffered) {
-          const rightX = replayBatchRight.map(b => b.x);
-          const rightY = replayBatchRight.map(b => b.y);
-          const leftX = replayBatchLeft.map(b => b.x);
-          const leftY = replayBatchLeft.map(b => b.y);
-          Plotly.extendTraces(chartDivRight, { x: rightX, y: rightY }, [0, 1, 2, 3]);
-          Plotly.extendTraces(chartDivLeft, { x: leftX, y: leftY }, [0, 1, 2, 3]);
+          // Update 6 separate charts with remaining batched data
+          Plotly.extendTraces(chartRightTop, { x: [replayBatches.rightTop.x], y: [replayBatches.rightTop.y] }, [0]);
+          Plotly.extendTraces(chartRightBottom, { x: [replayBatches.rightBottom.x], y: [replayBatches.rightBottom.y] }, [0]);
+          Plotly.extendTraces(chartRightCompression, { x: [replayBatches.rightCompression.x], y: [replayBatches.rightCompression.y] }, [0]);
+          Plotly.extendTraces(chartLeftTop, { x: [replayBatches.leftTop.x], y: [replayBatches.leftTop.y] }, [0]);
+          Plotly.extendTraces(chartLeftBottom, { x: [replayBatches.leftBottom.x], y: [replayBatches.leftBottom.y] }, [0]);
+          Plotly.extendTraces(chartLeftCompression, { x: [replayBatches.leftCompression.x], y: [replayBatches.leftCompression.y] }, [0]);
         }
         console.log('Replay complete');
         stopReplay();
@@ -912,22 +1034,16 @@ function handleSensorData(voltages, timestamp, roll, pitch, rawAdc = null) {
   
   // Initialize time reference if needed
   if (t0 == null) {
-    // For live mode: use current time
-    // For replay: use the first timestamp from the data
-    if (replayData) {
-      t0 = 0; // Replay uses timestamps directly from data
-    } else {
-      t0 = Date.now(); // Live mode starts from now
-    }
+    t0 = Date.now(); // Start client-side timer
   }
   
   // Calculate relative time in seconds
   let seconds;
   if (replayData) {
-    // Replay mode: use the timestamp from the data directly (already in ms)
+    // Replay mode: use the timestamp from the CSV data (already in ms)
     seconds = timestamp / 1000;
   } else {
-    // Live mode: calculate elapsed time from when we started
+    // Live mode: calculate elapsed time from client side to avoid network delays
     const elapsedMs = Date.now() - t0;
     seconds = elapsedMs / 1000;
   }
@@ -953,23 +1069,45 @@ function handleSensorData(voltages, timestamp, roll, pitch, rawAdc = null) {
   // Replay path: skip heavy averaging to reduce lag, but keep heatmap and plots
   if (replayData && !liveMode) {
     updateHandlebarHeatmap();
-    for (let i = 0; i < 4; i++) {
-      replayBatchRight[i].x.push(seconds);
-      replayBatchRight[i].y.push(voltages[i]);
-      replayBatchLeft[i].x.push(seconds);
-      replayBatchLeft[i].y.push(voltages[4 + i]);
-    }
+    
+    // Get aggregated sensor data for replay
+    const aggregated = getAggregatedSensorData(voltages);
+    
+    // Batch the aggregated data for 6 separate charts
+    replayBatches.rightTop.x.push(seconds);
+    replayBatches.rightTop.y.push(aggregated.rightTopSum);
+    replayBatches.rightBottom.x.push(seconds);
+    replayBatches.rightBottom.y.push(aggregated.rightBottomSum);
+    replayBatches.rightCompression.x.push(seconds);
+    replayBatches.rightCompression.y.push(aggregated.rightCompression);
+    
+    replayBatches.leftTop.x.push(seconds);
+    replayBatches.leftTop.y.push(aggregated.leftTopSum);
+    replayBatches.leftBottom.x.push(seconds);
+    replayBatches.leftBottom.y.push(aggregated.leftBottomSum);
+    replayBatches.leftCompression.x.push(seconds);
+    replayBatches.leftCompression.y.push(aggregated.leftCompression);
+    
     const nowFlush = performance.now();
-    const shouldFlush = replayBatchRight[0].x.length >= 15 || (replayLastFlush === 0) || (nowFlush - replayLastFlush >= 25);
+    const shouldFlush = replayBatches.rightTop.x.length >= 15 || (replayLastFlush === 0) || (nowFlush - replayLastFlush >= 25);
     if (shouldFlush) {
-      const rightX = replayBatchRight.map(b => b.x);
-      const rightY = replayBatchRight.map(b => b.y);
-      const leftX = replayBatchLeft.map(b => b.x);
-      const leftY = replayBatchLeft.map(b => b.y);
-      Plotly.extendTraces(chartDivRight, { x: rightX, y: rightY }, [0, 1, 2, 3]);
-      Plotly.extendTraces(chartDivLeft, { x: leftX, y: leftY }, [0, 1, 2, 3]);
-      replayBatchRight = [0, 1, 2, 3].map(() => ({ x: [], y: [] }));
-      replayBatchLeft = [0, 1, 2, 3].map(() => ({ x: [], y: [] }));
+      // Update 6 separate charts with batched data
+      Plotly.extendTraces(chartRightTop, { x: [replayBatches.rightTop.x], y: [replayBatches.rightTop.y] }, [0]);
+      Plotly.extendTraces(chartRightBottom, { x: [replayBatches.rightBottom.x], y: [replayBatches.rightBottom.y] }, [0]);
+      Plotly.extendTraces(chartRightCompression, { x: [replayBatches.rightCompression.x], y: [replayBatches.rightCompression.y] }, [0]);
+      Plotly.extendTraces(chartLeftTop, { x: [replayBatches.leftTop.x], y: [replayBatches.leftTop.y] }, [0]);
+      Plotly.extendTraces(chartLeftBottom, { x: [replayBatches.leftBottom.x], y: [replayBatches.leftBottom.y] }, [0]);
+      Plotly.extendTraces(chartLeftCompression, { x: [replayBatches.leftCompression.x], y: [replayBatches.leftCompression.y] }, [0]);
+      
+      // Clear batches
+      replayBatches = {
+        rightTop: { x: [], y: [] },
+        rightBottom: { x: [], y: [] },
+        rightCompression: { x: [], y: [] },
+        leftTop: { x: [], y: [] },
+        leftBottom: { x: [], y: [] },
+        leftCompression: { x: [], y: [] }
+      };
       replayLastFlush = nowFlush;
     }
     return;
@@ -990,40 +1128,80 @@ function handleSensorData(voltages, timestamp, roll, pitch, rawAdc = null) {
   updateHandlebarHeatmap();
   
   // Live mode or non-replay CSV mode: update per-sample
-  const xDataRight = [[seconds], [seconds], [seconds], [seconds]];
-  const yDataRight = [[voltages[0]], [voltages[1]], [voltages[2]], [voltages[3]]];
-  
-  const xDataLeft = [[seconds], [seconds], [seconds], [seconds]];
-  const yDataLeft = [[voltages[4]], [voltages[5]], [voltages[6]], [voltages[7]]];
-  
-  Plotly.extendTraces(chartDivRight, { x: xDataRight, y: yDataRight }, [0, 1, 2, 3]);
-  Plotly.extendTraces(chartDivLeft, { x: xDataLeft, y: yDataLeft }, [0, 1, 2, 3]);
+  if (calibrationMode) {
+    // In calibration mode: show all 8 individual sensors on 2 charts
+    const xDataRight = [[seconds], [seconds], [seconds], [seconds]];
+    const yDataRight = [[voltages[0]], [voltages[1]], [voltages[2]], [voltages[3]]];
+    
+    const xDataLeft = [[seconds], [seconds], [seconds], [seconds]];
+    const yDataLeft = [[voltages[4]], [voltages[5]], [voltages[6]], [voltages[7]]];
+    
+    Plotly.extendTraces(chartCalibRight, { x: xDataRight, y: yDataRight }, [0, 1, 2, 3]);
+    Plotly.extendTraces(chartCalibLeft, { x: xDataLeft, y: yDataLeft }, [0, 1, 2, 3]);
+  } else {
+    // In default mode: show 6 separate charts (one per metric)
+    const aggregated = getAggregatedSensorData(voltages);
+    
+    // Debug: log first few samples
+    if (sampleCount <= 3) {
+      console.log(`Sample ${sampleCount}: time=${seconds.toFixed(2)}, rightTop=${aggregated.rightTopSum.toFixed(2)}, rightBottom=${aggregated.rightBottomSum.toFixed(2)}`);
+    }
+    
+    // Update each chart individually with single trace
+    Plotly.extendTraces(chartRightTop, { x: [[seconds]], y: [[aggregated.rightTopSum]] }, [0]);
+    Plotly.extendTraces(chartRightBottom, { x: [[seconds]], y: [[aggregated.rightBottomSum]] }, [0]);
+    Plotly.extendTraces(chartRightCompression, { x: [[seconds]], y: [[aggregated.rightCompression]] }, [0]);
+    
+    Plotly.extendTraces(chartLeftTop, { x: [[seconds]], y: [[aggregated.leftTopSum]] }, [0]);
+    Plotly.extendTraces(chartLeftBottom, { x: [[seconds]], y: [[aggregated.leftBottomSum]] }, [0]);
+    Plotly.extendTraces(chartLeftCompression, { x: [[seconds]], y: [[aggregated.leftCompression]] }, [0]);
+  }
   
   // Update x-axis range based on graph mode
   const [axisStart, axisEnd] = getXAxisRange(seconds);
-  Plotly.relayout(chartDivRight, {
-    'xaxis.range': [axisStart, axisEnd]
-  });
-  Plotly.relayout(chartDivLeft, {
-    'xaxis.range': [axisStart, axisEnd]
-  });
+  
+  if (calibrationMode) {
+    Plotly.relayout(chartCalibRight, { 'xaxis.range': [axisStart, axisEnd] });
+    Plotly.relayout(chartCalibLeft, { 'xaxis.range': [axisStart, axisEnd] });
+  } else {
+    // Update all 6 charts
+    Plotly.relayout(chartRightTop, { 'xaxis.range': [axisStart, axisEnd] });
+    Plotly.relayout(chartRightBottom, { 'xaxis.range': [axisStart, axisEnd] });
+    Plotly.relayout(chartRightCompression, { 'xaxis.range': [axisStart, axisEnd] });
+    Plotly.relayout(chartLeftTop, { 'xaxis.range': [axisStart, axisEnd] });
+    Plotly.relayout(chartLeftBottom, { 'xaxis.range': [axisStart, axisEnd] });
+    Plotly.relayout(chartLeftCompression, { 'xaxis.range': [axisStart, axisEnd] });
+  }
   
   // Trim old data points to prevent memory buildup (keep last 10 minutes of data)
-  if (chartDivRight.data && chartDivRight.data[0].x.length > 6000) {
-    const removeCount = chartDivRight.data[0].x.length - 6000;
-    Plotly.relayout(chartDivRight, {});
-    for (let i = 0; i < 4; i++) {
-      chartDivRight.data[i].x.splice(0, removeCount);
-      chartDivRight.data[i].y.splice(0, removeCount);
+  if (calibrationMode) {
+    if (chartCalibRight.data && chartCalibRight.data[0].x.length > 6000) {
+      const removeCount = chartCalibRight.data[0].x.length - 6000;
+      Plotly.relayout(chartCalibRight, {});
+      for (let i = 0; i < 4; i++) {
+        chartCalibRight.data[i].x.splice(0, removeCount);
+        chartCalibRight.data[i].y.splice(0, removeCount);
+      }
     }
-  }
-  if (chartDivLeft.data && chartDivLeft.data[0].x.length > 6000) {
-    const removeCount = chartDivLeft.data[0].x.length - 6000;
-    Plotly.relayout(chartDivLeft, {});
-    for (let i = 0; i < 4; i++) {
-      chartDivLeft.data[i].x.splice(0, removeCount);
-      chartDivLeft.data[i].y.splice(0, removeCount);
+    if (chartCalibLeft.data && chartCalibLeft.data[0].x.length > 6000) {
+      const removeCount = chartCalibLeft.data[0].x.length - 6000;
+      Plotly.relayout(chartCalibLeft, {});
+      for (let i = 0; i < 4; i++) {
+        chartCalibLeft.data[i].x.splice(0, removeCount);
+        chartCalibLeft.data[i].y.splice(0, removeCount);
+      }
     }
+  } else {
+    // Trim for each of the 6 separate charts
+    const charts = [chartRightTop, chartRightBottom, chartRightCompression, chartLeftTop, chartLeftBottom, chartLeftCompression];
+    charts.forEach(chart => {
+      if (chart.data && chart.data[0].x.length > 6000) {
+        const removeCount = chart.data[0].x.length - 6000;
+        Plotly.relayout(chart, {});
+        chart.data[0].x.splice(0, removeCount);
+        chart.data[0].y.splice(0, removeCount);
+      }
+    });
   }
   
   // Update KPI stats
@@ -1045,25 +1223,21 @@ if (clearChartBtn) clearChartBtn.addEventListener('click', () => {
   // Stop any ongoing replay
   stopReplay();
   
-  // Clear right handle chart
-  Plotly.react(chartDivRight, [
-    { x: [], y: [], mode: 'lines', line: { color: colors[0], width: 2 }, name: 'Sensor 1' },
-    { x: [], y: [], mode: 'lines', line: { color: colors[1], width: 2 }, name: 'Sensor 2' },
-    { x: [], y: [], mode: 'lines', line: { color: colors[2], width: 2 }, name: 'Sensor 3' },
-    { x: [], y: [], mode: 'lines', line: { color: colors[3], width: 2 }, name: 'Sensor 4' }
-  ], chartLayout, chartConfig);
-  
-  // Clear left handle chart
-  Plotly.react(chartDivLeft, [
-    { x: [], y: [], mode: 'lines', line: { color: colors[0], width: 2 }, name: 'Sensor 5' },
-    { x: [], y: [], mode: 'lines', line: { color: colors[1], width: 2 }, name: 'Sensor 6' },
-    { x: [], y: [], mode: 'lines', line: { color: colors[2], width: 2 }, name: 'Sensor 7' },
-    { x: [], y: [], mode: 'lines', line: { color: colors[3], width: 2 }, name: 'Sensor 8' }
-  ], chartLayout, chartConfig);
-  
-  // Reset axis ranges
-  Plotly.relayout(chartDivRight, { 'xaxis.autorange': true, 'yaxis.autorange': true });
-  Plotly.relayout(chartDivLeft, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+  // Clear charts based on current mode
+  if (calibrationMode) {
+    // Clear calibration charts by resetting data
+    Plotly.restyle(chartCalibRight, { x: [[], [], [], []], y: [[], [], [], []] }, [0, 1, 2, 3]);
+    Plotly.restyle(chartCalibLeft, { x: [[], [], [], []], y: [[], [], [], []] }, [0, 1, 2, 3]);
+    Plotly.relayout(chartCalibRight, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+    Plotly.relayout(chartCalibLeft, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+  } else {
+    // Clear all 6 default mode charts by resetting data
+    const charts = [chartRightTop, chartRightBottom, chartRightCompression, chartLeftTop, chartLeftBottom, chartLeftCompression];
+    charts.forEach(chart => {
+      Plotly.restyle(chart, { x: [[]], y: [[]] }, [0]);
+      Plotly.relayout(chart, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+    });
+  }
   
   t0 = null; sampleCount = 0;
   if (latestPressureEl) latestPressureEl.textContent = '0 N';
@@ -1090,6 +1264,11 @@ if (clearChartBtn) clearChartBtn.addEventListener('click', () => {
 function applyChartTheme() {
   const isDarkTheme = document.body.classList.contains('dark-theme-variables');
   
+  // Check if any chart exists and has been initialized
+  if (!chartRightTop || !chartRightTop._fullLayout) {
+    return;  // Charts not ready yet
+  }
+  
   if (isDarkTheme) {
     const update = {
       plot_bgcolor: 'rgba(25, 25, 25, 1)',
@@ -1104,8 +1283,16 @@ function applyChartTheme() {
       'yaxis.linecolor': '#333',
       'yaxis.showgrid': true,
     };
-    Plotly.relayout(chartDivRight, update);
-    Plotly.relayout(chartDivLeft, update);
+    // Update all 6 default mode charts
+    if (chartRightTop._fullLayout) Plotly.relayout(chartRightTop, update);
+    if (chartRightBottom._fullLayout) Plotly.relayout(chartRightBottom, update);
+    if (chartRightCompression._fullLayout) Plotly.relayout(chartRightCompression, update);
+    if (chartLeftTop._fullLayout) Plotly.relayout(chartLeftTop, update);
+    if (chartLeftBottom._fullLayout) Plotly.relayout(chartLeftBottom, update);
+    if (chartLeftCompression._fullLayout) Plotly.relayout(chartLeftCompression, update);
+    // Update 2 calibration mode charts
+    if (chartCalibRight._fullLayout) Plotly.relayout(chartCalibRight, update);
+    if (chartCalibLeft._fullLayout) Plotly.relayout(chartCalibLeft, update);
     
     // Update 3D bike scene to dark background
     if (threeScene) {
@@ -1126,8 +1313,16 @@ function applyChartTheme() {
       'yaxis.linecolor': '#ccc',
       'yaxis.showgrid': true,
     };
-    Plotly.relayout(chartDivRight, update);
-    Plotly.relayout(chartDivLeft, update);
+    // Update all 6 default mode charts
+    if (chartRightTop._fullLayout) Plotly.relayout(chartRightTop, update);
+    if (chartRightBottom._fullLayout) Plotly.relayout(chartRightBottom, update);
+    if (chartRightCompression._fullLayout) Plotly.relayout(chartRightCompression, update);
+    if (chartLeftTop._fullLayout) Plotly.relayout(chartLeftTop, update);
+    if (chartLeftBottom._fullLayout) Plotly.relayout(chartLeftBottom, update);
+    if (chartLeftCompression._fullLayout) Plotly.relayout(chartLeftCompression, update);
+    // Update 2 calibration mode charts
+    if (chartCalibRight._fullLayout) Plotly.relayout(chartCalibRight, update);
+    if (chartCalibLeft._fullLayout) Plotly.relayout(chartCalibLeft, update);
     
     // Update 3D bike scene to light background
     if (threeScene) {
@@ -1239,6 +1434,9 @@ function updateGraphModeUI() {
 
 // Init
 window.addEventListener('load', () => {
+  // Initialize charts first, now that DOM is ready and containers have dimensions
+  initDefaultCharts();
+  
   // Load calibration mode from API
   (async () => {
     try {
@@ -1247,10 +1445,15 @@ window.addEventListener('load', () => {
       if (calibrationModeToggle) {
         calibrationModeToggle.checked = calibrationMode;
       }
-      applyCalibrationUI(calibrationMode);
+      // Only apply calibration UI if actually enabled (default to normal mode)
+      if (calibrationMode) {
+        applyCalibrationUI(calibrationMode);
+      }
     } catch (err) {
       console.warn('Could not load calibration mode:', err);
       calibrationMode = false;
+      // Ensure default mode is shown if API fails
+      applyCalibrationUI(false);
     }
   })();
   
@@ -1279,7 +1482,8 @@ window.addEventListener('load', () => {
   loadGraphModePreference();
   connect();
   updateRunButton();
-  if (btnReplayCSV) btnReplayCSV.style.display = 'none';
+
+  // UI event handlers (inside load event)
   if (btnRefreshRuns) btnRefreshRuns.addEventListener('click', listRuns);
   if (btnLoadRun) btnLoadRun.addEventListener('click', plotSelectedRun);
   if (liveModeChk) liveModeChk.addEventListener('change', () => { 
@@ -1355,24 +1559,24 @@ window.addEventListener('load', () => {
         // Start HTTP polling for live data
         startHttpPolling();
         
-        // Clear all graphs
-        Plotly.react(chartDivRight, [
-          { x: [], y: [], mode: 'lines', line: { color: colors[0], width: 2 }, name: 'Sensor 1' },
-          { x: [], y: [], mode: 'lines', line: { color: colors[1], width: 2 }, name: 'Sensor 2' },
-          { x: [], y: [], mode: 'lines', line: { color: colors[2], width: 2 }, name: 'Sensor 3' },
-          { x: [], y: [], mode: 'lines', line: { color: colors[3], width: 2 }, name: 'Sensor 4' }
-        ], chartLayout, chartConfig);
+        // Clear all 6 charts for default mode
+        const emptyTrace = [{ x: [], y: [], mode: 'lines', line: { color: '#1976d2', width: 3 } }];
+        const singleTraceLayout = { ...chartLayout, showlegend: false };
         
-        Plotly.react(chartDivLeft, [
-          { x: [], y: [], mode: 'lines', line: { color: colors[0], width: 2 }, name: 'Sensor 5' },
-          { x: [], y: [], mode: 'lines', line: { color: colors[1], width: 2 }, name: 'Sensor 6' },
-          { x: [], y: [], mode: 'lines', line: { color: colors[2], width: 2 }, name: 'Sensor 7' },
-          { x: [], y: [], mode: 'lines', line: { color: colors[3], width: 2 }, name: 'Sensor 8' }
-        ], chartLayout, chartConfig);
+        Plotly.react(chartRightTop, emptyTrace, singleTraceLayout, chartConfig);
+        Plotly.react(chartRightBottom, emptyTrace, singleTraceLayout, chartConfig);
+        Plotly.react(chartRightCompression, emptyTrace, singleTraceLayout, chartConfig);
+        Plotly.react(chartLeftTop, emptyTrace, singleTraceLayout, chartConfig);
+        Plotly.react(chartLeftBottom, emptyTrace, singleTraceLayout, chartConfig);
+        Plotly.react(chartLeftCompression, emptyTrace, singleTraceLayout, chartConfig);
         
         // Reset axis ranges when switching to live mode
-        Plotly.relayout(chartDivRight, { 'xaxis.autorange': true, 'yaxis.autorange': true });
-        Plotly.relayout(chartDivLeft, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+        Plotly.relayout(chartRightTop, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+        Plotly.relayout(chartRightBottom, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+        Plotly.relayout(chartRightCompression, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+        Plotly.relayout(chartLeftTop, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+        Plotly.relayout(chartLeftBottom, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+        Plotly.relayout(chartLeftCompression, { 'xaxis.autorange': true, 'yaxis.autorange': true });
         
         // Reset sensor pressures and history
         sensorPressures = [0, 0, 0, 0, 0, 0, 0, 0];
@@ -1597,8 +1801,8 @@ function plotRun(rows, xField, yField, y2Field = '', dualAxis = false) {
   if (y2Field && dualAxis) {
     layout.yaxis2 = { title: y2Field, overlaying: 'y', side: 'right' };
   }
-  // Plot CSV analysis on right chart only for now
-  Plotly.react(chartDivRight, traces, layout, chartConfig);
+  // Plot CSV analysis on the first chart (top left)
+  Plotly.react(chartLeftTop, traces, layout, chartConfig);
   if (latestPressureEl) latestPressureEl.textContent = rows.length ? `${(y[y.length-1] != null ? y[y.length-1] : 0).toFixed(2)} ${yField && yField.toLowerCase().includes('pressure') ? 'N' : ''}` : '0';
   if (sampleCountEl) sampleCountEl.textContent = String(rows.length);
   // Stats for loaded run (use primary Y series)
@@ -2003,8 +2207,15 @@ let sensorPressureAverages = [0, 0, 0, 0, 0, 0, 0, 0]; // Averaged values for he
 let useAveragePressure = true; // Toggle between current and average
 let hoverTime = null; // Time value when hovering over graph
 // Replay chart buffering to avoid lag when points are ~10ms apart
-let replayBatchRight = [0, 1, 2, 3].map(() => ({ x: [], y: [] }));
-let replayBatchLeft = [0, 1, 2, 3].map(() => ({ x: [], y: [] }));
+// For 6 separate charts (one per metric)
+let replayBatches = {
+  rightTop: { x: [], y: [] },
+  rightBottom: { x: [], y: [] },
+  rightCompression: { x: [], y: [] },
+  leftTop: { x: [], y: [] },
+  leftBottom: { x: [], y: [] },
+  leftCompression: { x: [], y: [] }
+};
 let replayLastFlush = 0;
 let handlebarRotation = { x: 0, y: 0 };
 let handlebarZoom = 2;
@@ -2715,18 +2926,25 @@ function applyTranslations(lang) {
     }
   });
   
-  // Update Plotly axis labels
+  // Update Plotly axis labels for all 8 charts (only if initialized)
   const xAxisLabel = dict.x_axis_time || 'Time [s]';
   const yAxisLabel = dict.y_axis_voltage || 'Voltage [V]';
   
-  Plotly.relayout(chartDivRight, {
+  const layoutUpdate = {
     'xaxis.title': xAxisLabel,
     'yaxis.title': yAxisLabel
-  });
-  Plotly.relayout(chartDivLeft, {
-    'xaxis.title': xAxisLabel,
-    'yaxis.title': yAxisLabel
-  });
+  };
+  
+  // Update 6 default mode charts (only if initialized)
+  if (chartRightTop._fullLayout) Plotly.relayout(chartRightTop, layoutUpdate);
+  if (chartRightBottom._fullLayout) Plotly.relayout(chartRightBottom, layoutUpdate);
+  if (chartRightCompression._fullLayout) Plotly.relayout(chartRightCompression, layoutUpdate);
+  if (chartLeftTop._fullLayout) Plotly.relayout(chartLeftTop, layoutUpdate);
+  if (chartLeftBottom._fullLayout) Plotly.relayout(chartLeftBottom, layoutUpdate);
+  if (chartLeftCompression._fullLayout) Plotly.relayout(chartLeftCompression, layoutUpdate);
+  // Update 2 calibration mode charts (only if initialized)
+  if (chartCalibRight._fullLayout) Plotly.relayout(chartCalibRight, layoutUpdate);
+  if (chartCalibLeft._fullLayout) Plotly.relayout(chartCalibLeft, layoutUpdate);
 
   updateRunButton();
 }
@@ -2768,30 +2986,42 @@ async function renameSelectedRun() {
 
 function applyLayout(mode) {
   const show = (el, v) => { if (!el) return; el.style.display = v ? '' : 'none'; };
+  // Helper to show/hide all 6 default mode chart cards and 2 calibration cards
+  const showDefaultCharts = (v) => {
+    show(chartRightTopCard, v);
+    show(chartRightBottomCard, v);
+    show(chartRightCompressionCard, v);
+    show(chartLeftTopCard, v);
+    show(chartLeftBottomCard, v);
+    show(chartLeftCompressionCard, v);
+    show(chartCalibRightCard, v && calibrationMode);
+    show(chartCalibLeftCard, v && calibrationMode);
+  };
+  
   switch ((mode || 'live').toLowerCase()) {
     case 'live':
       show(rowLive, true); show(rowRunner, false); show(rowAxes, true); show(rowSmoothing, true); show(rowThresholds, true);
-      show(kpiGrid, true); show(threeCard, true); show(pressureCardRight, true); show(pressureCardLeft, true); show(corrCard, false);
+      show(kpiGrid, true); show(threeCard, true); showDefaultCharts(true); show(corrCard, false);
       break;
     case 'analysis':
       show(rowLive, false); show(rowRunner, true); show(rowAxes, true); show(rowSmoothing, true); show(rowThresholds, true);
-      show(kpiGrid, true); show(threeCard, false); show(pressureCardRight, true); show(pressureCardLeft, false); show(corrCard, true);
+      show(kpiGrid, true); show(threeCard, false); showDefaultCharts(true); show(corrCard, true);
       break;
     case 'files':
       show(rowLive, false); show(rowRunner, true); show(rowAxes, false); show(rowSmoothing, false); show(rowThresholds, false);
-      show(kpiGrid, false); show(threeCard, false); show(pressureCardRight, false); show(pressureCardLeft, false); show(corrCard, false);
+      show(kpiGrid, false); show(threeCard, false); showDefaultCharts(false); show(corrCard, false);
       break;
     case 'rider':
       show(rowLive, false); show(rowRunner, true); show(rowAxes, true); show(rowSmoothing, true); show(rowThresholds, false);
-      show(kpiGrid, true); show(threeCard, true); show(pressureCardRight, true); show(pressureCardLeft, true); show(corrCard, false);
+      show(kpiGrid, true); show(threeCard, true); showDefaultCharts(true); show(corrCard, false);
       break;
     case 'coach':
       show(rowLive, false); show(rowRunner, true); show(rowAxes, true); show(rowSmoothing, true); show(rowThresholds, true);
-      show(kpiGrid, true); show(threeCard, false); show(pressureCardRight, true); show(pressureCardLeft, true); show(corrCard, true);
+      show(kpiGrid, true); show(threeCard, false); showDefaultCharts(true); show(corrCard, true);
       break;
     default:
       show(rowLive, true); show(rowRunner, true); show(rowAxes, true); show(rowSmoothing, true); show(rowThresholds, true);
-      show(kpiGrid, true); show(threeCard, true); show(pressureCardRight, true); show(pressureCardLeft, true); show(corrCard, true);
+      show(kpiGrid, true); show(threeCard, true); showDefaultCharts(true); show(corrCard, true);
   }
 }
 
@@ -2890,7 +3120,7 @@ async function loadAndPlotCSV(filename) {
         // FSR_B0-B3 (Right grip: sensors 1-4)
         for (let j = 0; j < 4; j++) {
           const adcValue = parseInt(parts[3 + j]);
-          const voltage = ((adcValue * 3.3) / 4095) * 7; // Convert 12-bit ADC to voltage and multiply by 7
+          const voltage = ((adcValue * 3.3) / 4095); // Convert 12-bit ADC to voltage
           sensorData[j + 1].x.push(timeS);
           sensorData[j + 1].y.push(voltage);
         }
@@ -2898,7 +3128,7 @@ async function loadAndPlotCSV(filename) {
         // FSR_A0-A3 (Left grip: sensors 5-8)
         for (let j = 0; j < 4; j++) {
           const adcValue = parseInt(parts[7 + j]);
-          const voltage = ((adcValue * 3.3) / 4095) * 7; // Convert 12-bit ADC to voltage and multiply by 7
+          const voltage = ((adcValue * 3.3) / 4095); // Convert 12-bit ADC to voltage
           sensorData[j + 5].x.push(timeS);
           sensorData[j + 5].y.push(voltage);
         }
@@ -2952,30 +3182,50 @@ async function loadAndPlotCSV(filename) {
     // Update heatmap with averages
     updateHandlebarHeatmap();
     
-    // Build traces for right handle (sensors 1-4)
-    const tracesRight = [];
-    for (let i = 1; i <= 4; i++) {
-      const data = sensorData[i] || { x: [], y: [] };
-      tracesRight.push({
-        x: data.x,
-        y: data.y,
-        mode: 'lines',
-        line: { color: colors[i-1], width: 2 },
-        name: `Sensor ${i}`
-      });
-    }
+    // Calculate aggregated metrics for all time points (like live mode)
+    const timePoints = sensorData[1]?.x || [];
+    const aggregatedData = {
+      rightTopSum: { x: [], y: [] },
+      rightBottomSum: { x: [], y: [] },
+      rightCompression: { x: [], y: [] },
+      leftTopSum: { x: [], y: [] },
+      leftBottomSum: { x: [], y: [] },
+      leftCompression: { x: [], y: [] }
+    };
     
-    // Build traces for left handle (sensors 5-8)
-    const tracesLeft = [];
-    for (let i = 5; i <= 8; i++) {
-      const data = sensorData[i] || { x: [], y: [] };
-      tracesLeft.push({
-        x: data.x,
-        y: data.y,
-        mode: 'lines',
-        line: { color: colors[i-5], width: 2 },
-        name: `Sensor ${i}`
-      });
+    // For each time point, aggregate the sensor data
+    for (let timeIdx = 0; timeIdx < timePoints.length; timeIdx++) {
+      const time = timePoints[timeIdx];
+      
+      // Get voltage values at this time index from each sensor
+      const voltages = [];
+      for (let sensor = 1; sensor <= 8; sensor++) {
+        const data = sensorData[sensor];
+        voltages.push(data && data.y[timeIdx] !== undefined ? data.y[timeIdx] : 0);
+      }
+      
+      // Aggregate using same logic as live mode (see getAggregatedSensorData)
+      const rightTopSum = (voltages[0] + voltages[1]) / 2;
+      const rightBottomSum = (voltages[2] + voltages[3]) / 2;
+      const rightCompression = Math.max(0, rightBottomSum - rightTopSum);
+      
+      const leftTopSum = (voltages[4] + voltages[5]) / 2;
+      const leftBottomSum = (voltages[6] + voltages[7]) / 2;
+      const leftCompression = Math.max(0, leftBottomSum - leftTopSum);
+      
+      aggregatedData.rightTopSum.x.push(time);
+      aggregatedData.rightTopSum.y.push(rightTopSum);
+      aggregatedData.rightBottomSum.x.push(time);
+      aggregatedData.rightBottomSum.y.push(rightBottomSum);
+      aggregatedData.rightCompression.x.push(time);
+      aggregatedData.rightCompression.y.push(rightCompression);
+      
+      aggregatedData.leftTopSum.x.push(time);
+      aggregatedData.leftTopSum.y.push(leftTopSum);
+      aggregatedData.leftBottomSum.x.push(time);
+      aggregatedData.leftBottomSum.y.push(leftBottomSum);
+      aggregatedData.leftCompression.x.push(time);
+      aggregatedData.leftCompression.y.push(leftCompression);
     }
     
     // Plot with auto-range (no 30-second limit for CSV)
@@ -2984,21 +3234,66 @@ async function loadAndPlotCSV(filename) {
       xaxis: { title: 'Time (s)', autorange: true },
       yaxis: { title: 'Voltage (V)' },
       margin: { t: 0, r: 0, b: 30, l: 40 },
-      showlegend: true,
-      legend: { x: 0, y: 1, orientation: 'h' }
+      showlegend: false
     };
     
-    Plotly.react(chartDivRight, tracesRight, layoutCSV, chartConfig);
-    Plotly.react(chartDivLeft, tracesLeft, layoutCSV, chartConfig);
+    // Plot each aggregated metric to its own chart
+    Plotly.react(chartRightTop, [{ 
+      x: aggregatedData.rightTopSum.x, 
+      y: aggregatedData.rightTopSum.y, 
+      mode: 'lines', 
+      line: { color: '#1976d2', width: 2 }, 
+      name: 'Top Sum' 
+    }], layoutCSV, chartConfig);
+    
+    Plotly.react(chartRightBottom, [{ 
+      x: aggregatedData.rightBottomSum.x, 
+      y: aggregatedData.rightBottomSum.y, 
+      mode: 'lines', 
+      line: { color: '#1976d2', width: 2 }, 
+      name: 'Bottom Sum' 
+    }], layoutCSV, chartConfig);
+    
+    Plotly.react(chartRightCompression, [{ 
+      x: aggregatedData.rightCompression.x, 
+      y: aggregatedData.rightCompression.y, 
+      mode: 'lines', 
+      line: { color: '#1976d2', width: 2 }, 
+      name: 'Compression' 
+    }], layoutCSV, chartConfig);
+    
+    Plotly.react(chartLeftTop, [{ 
+      x: aggregatedData.leftTopSum.x, 
+      y: aggregatedData.leftTopSum.y, 
+      mode: 'lines', 
+      line: { color: '#1976d2', width: 2 }, 
+      name: 'Top Sum' 
+    }], layoutCSV, chartConfig);
+    
+    Plotly.react(chartLeftBottom, [{ 
+      x: aggregatedData.leftBottomSum.x, 
+      y: aggregatedData.leftBottomSum.y, 
+      mode: 'lines', 
+      line: { color: '#1976d2', width: 2 }, 
+      name: 'Bottom Sum' 
+    }], layoutCSV, chartConfig);
+    
+    Plotly.react(chartLeftCompression, [{ 
+      x: aggregatedData.leftCompression.x, 
+      y: aggregatedData.leftCompression.y, 
+      mode: 'lines', 
+      line: { color: '#1976d2', width: 2 }, 
+      name: 'Compression' 
+    }], layoutCSV, chartConfig);
     
     // Add hover events to update heatmap based on cursor position
-    chartDivRight.on('plotly_hover', (data) => {
+    chartRightTop.on('plotly_hover', (data) => {
       if (data.points && data.points[0]) {
         hoverTime = data.points[0].x;
         updateHandlebarHeatmap();
       }
     });
-    chartDivLeft.on('plotly_hover', (data) => {
+    chartLeftTop.on('plotly_hover', (data) => {
       if (data.points && data.points[0]) {
         hoverTime = data.points[0].x;
         updateHandlebarHeatmap();
@@ -3006,11 +3301,11 @@ async function loadAndPlotCSV(filename) {
     });
     
     // Reset to average when not hovering
-    chartDivRight.on('plotly_unhover', () => {
+    chartRightTop.on('plotly_unhover', () => {
       hoverTime = null;
       updateHandlebarHeatmap();
     });
-    chartDivLeft.on('plotly_unhover', () => {
+    chartLeftTop.on('plotly_unhover', () => {
       hoverTime = null;
       updateHandlebarHeatmap();
     });

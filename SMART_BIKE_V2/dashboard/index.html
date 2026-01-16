@@ -90,14 +90,47 @@
           </div>
         </section>
 
-        <section class="dashboard-card" id="chart_pressure_left_card">
-          <h2 class="card-title" data-i18n="left_handle">Left</h2>
-          <div id="pressure_chart_left" class="chart"></div>
+        <!-- Left Handle Charts (Column 1) -->
+        <section class="dashboard-card" id="chart_left_top_card">
+          <h2 class="card-title">Left - Top Sum</h2>
+          <div id="chart_left_top" class="chart"></div>
         </section>
 
-        <section class="dashboard-card" id="chart_pressure_right_card">
+        <!-- Right Handle Charts (Column 2) -->
+        <section class="dashboard-card" id="chart_right_top_card">
+          <h2 class="card-title">Right - Top Sum</h2>
+          <div id="chart_right_top" class="chart"></div>
+        </section>
+
+        <section class="dashboard-card" id="chart_left_bottom_card">
+          <h2 class="card-title">Left - Bottom Sum</h2>
+          <div id="chart_left_bottom" class="chart"></div>
+        </section>
+
+        <section class="dashboard-card" id="chart_right_bottom_card">
+          <h2 class="card-title">Right - Bottom Sum</h2>
+          <div id="chart_right_bottom" class="chart"></div>
+        </section>
+
+        <section class="dashboard-card" id="chart_left_compression_card">
+          <h2 class="card-title">Left - Compression</h2>
+          <div id="chart_left_compression" class="chart"></div>
+        </section>
+
+        <section class="dashboard-card" id="chart_right_compression_card">
+          <h2 class="card-title">Right - Compression</h2>
+          <div id="chart_right_compression" class="chart"></div>
+        </section>
+
+        <!-- Calibration Mode Charts (hidden by default) -->
+        <section class="dashboard-card calibration-chart" id="chart_calib_right_card" style="display:none;">
           <h2 class="card-title" data-i18n="right_handle">Right</h2>
-          <div id="pressure_chart_right" class="chart"></div>
+          <div id="chart_calib_right" class="chart"></div>
+        </section>
+
+        <section class="dashboard-card calibration-chart" id="chart_calib_left_card" style="display:none;">
+          <h2 class="card-title" data-i18n="left_handle">Left</h2>
+          <div id="chart_calib_left" class="chart"></div>
         </section>
 
         <section class="dashboard-card" id="corr_card" style="display: none;">

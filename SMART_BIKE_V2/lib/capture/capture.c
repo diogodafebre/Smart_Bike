@@ -248,6 +248,7 @@ void cpt_stop(void) {
 }
 
 void cpt_start(void) {
+    cpt_time_ticks = 0;
     cpt_started = true;
 }
 
@@ -273,10 +274,10 @@ void cpt_get_latest_voltages(float voltages[8]) {
     // FSR_B = Right grip sensors 1-4
     // FSR_A = Left grip sensors 5-8
     for (int i = 0; i < 4; i++) {
-        voltages[i] = ((g_cpt_data.fsr_values.fsr_b_values[i] * 3.3f) / 4095.0f) * 7.0f;
+        voltages[i] = ((g_cpt_data.fsr_values.fsr_b_values[i] * 3.3f) / 4095.0f);
     }
     for (int i = 0; i < 4; i++) {
-        voltages[i + 4] = ((g_cpt_data.fsr_values.fsr_a_values[i] * 3.3f) / 4095.0f) * 7.0f;
+        voltages[i + 4] = ((g_cpt_data.fsr_values.fsr_a_values[i] * 3.3f) / 4095.0f);
     }
 }
 
@@ -300,6 +301,10 @@ esp_err_t cpt_task_once(void) {
     if (last_button_state == 1 && current_button_state == 0) {
         // Button pressed: toggle the state
         cpt_started = !cpt_started;
+        if (cpt_started) {
+            // Reset timer immediately when starting via button
+            cpt_time_ticks = 0;
+        }
         ESP_LOGI(TAG, "Button pressed - toggled to: %s", cpt_started ? "RUNNING" : "STOPPED");
     }
     last_button_state = current_button_state;

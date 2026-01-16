@@ -35,7 +35,7 @@ static volatile int g_active_transfers = 0; // boost while >0
 
 // TX power levels (ESP-IDF uses 0.25 dBm steps)
 #define TX_POWER_MAX 84  // ~21 dBm (reported/logged as ~20 dBm)
-#define TX_POWER_LOW 40  // ~10 dBm
+#define TX_POWER_LOW 84  // ~10 dBm
 
 static void adjust_tx_power(void) {
   // Decide power based on station presence, recent activity, and active transfers
@@ -89,6 +89,7 @@ static void nvs_load_active_runner(void) {
 
 static void nvs_load_calibration_mode(void) {
   nvs_handle_t h;
+  g_calibration_mode = false;  // Default to false (normal mode)
   if (nvs_open("storage", NVS_READONLY, &h) == ESP_OK) {
     uint8_t flag = 0;
     if (nvs_get_u8(h, "calib_mode", &flag) == ESP_OK) {
