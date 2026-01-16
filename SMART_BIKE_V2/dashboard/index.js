@@ -2328,15 +2328,15 @@ function updateHandlebarHeatmap() {
       if (isRight) {
         // Right grip: sensors 1-4
         if (isTop && isRight_XAxis) sensorIndex = 0;        // Sensor 1
-        else if (isTop && !isRight_XAxis) sensorIndex = 1;  // Sensor 2
-        else if (!isTop && isRight_XAxis) sensorIndex = 2;  // Sensor 3
-        else sensorIndex = 3;                                // Sensor 4
+        else if (isTop && !isRight_XAxis) sensorIndex = 2;  // Sensor 3
+        else if (!isTop && isRight_XAxis) sensorIndex = 3;  // Sensor 4
+        else sensorIndex = 1;                                // Sensor 2
       } else {
         // Left grip: sensors 5-8
         if (isTop && isRight_XAxis) sensorIndex = 4;        // Sensor 5
-        else if (isTop && !isRight_XAxis) sensorIndex = 5;  // Sensor 6
-        else if (!isTop && isRight_XAxis) sensorIndex = 6;  // Sensor 7
-        else sensorIndex = 7;                                // Sensor 8
+        else if (isTop && !isRight_XAxis) sensorIndex = 6;  // Sensor 7
+        else if (!isTop && isRight_XAxis) sensorIndex = 7;  // Sensor 7
+        else sensorIndex = 5;                                // Sensor 5
       }
       
       const pressure = pressuresToUse[sensorIndex];
