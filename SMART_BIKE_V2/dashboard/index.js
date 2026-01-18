@@ -135,6 +135,9 @@ const btnDeleteUnsortedRun = document.getElementById('btn_delete_unsorted_run');
 
 const RESERVED_UNSORTED = '.';  // Root SD card directory
 
+/**
+ * Opens the profile management modal and refreshes the profiles list
+ */
 function showProfileModal() {
   if (!profileModal) return;
   profileModal.classList.remove('hidden');
@@ -142,6 +145,9 @@ function showProfileModal() {
 }
 function hideProfileModal() { if (profileModal) profileModal.classList.add('hidden'); }
 
+/**
+ * Opens the settings modal and updates settings UI state
+ */
 function showSettingsModal() {
   if (!settingsModal) return;
   settingsModal.classList.remove('hidden');
@@ -149,6 +155,9 @@ function showSettingsModal() {
 }
 function hideSettingsModal() { if (settingsModal) settingsModal.classList.add('hidden'); }
 
+/**
+ * Updates settings UI to reflect current theme, language, and calibration mode
+ */
 function updateSettingsUI() {
   // Set active theme radio
   const isDark = document.body.classList.contains('dark-theme-variables');
@@ -204,6 +213,11 @@ function applyCalibrationUI(enabled) {
   }
 }
 
+/**
+ * Updates calibration grid cells with raw ADC values and converted Newton readings
+ * @param {number[]} rawAdc - Array of 8 raw ADC sensor values
+ * @param {number[]} newtons - Array of 8 converted Newton force values
+ */
 function updateCalibrationGrid(rawAdc, newtons) {
   if (!calibrationCells || calibrationCells.length === 0) return;
   calibrationCells.forEach((cell, idx) => {
@@ -217,17 +231,32 @@ function updateCalibrationGrid(rawAdc, newtons) {
   });
 }
 
+/**
+ * Makes HTTP GET request to API and returns parsed JSON response
+ * @param {string} url - API endpoint URL
+ * @returns {Promise<Object>} Parsed JSON response data
+ */
 async function apiGetJSON(url) {
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   return resp.json();
 }
+
+/**
+ * Makes HTTP POST request with form data and returns parsed JSON response
+ * @param {string} url - API endpoint URL
+ * @param {Object} data - Form data as key-value pairs
+ * @returns {Promise<Object>} Parsed JSON response data
+ */
 async function apiPostForm(url, data) {
   const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(data).toString() });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   return resp.json().catch(()=>({ok:true}));
 }
 
+/**
+ * Fetches and displays list of runner profiles in the profile management modal
+ */
 async function refreshProfilesUI() {
   try {
     // Populate runners
@@ -318,6 +347,9 @@ function highlightSelectedRun(selectedValue) {
   }
 }
 
+/**
+ * Loads active profile from device and populates run lists
+ */
 async function loadActiveProfileAndRuns() {
   try {
     // Get active runner
@@ -768,6 +800,9 @@ function getAggregatedSensorData(newtons) {
   };
 }
 
+/**
+ * Initializes the 2-chart calibration mode layout (4 sensors per chart)
+ */
 function initCalibrationCharts() {
   // Initialize right handle chart (sensors 1-4) - calibration mode
   Plotly.newPlot(chartCalibRight, [
@@ -1797,6 +1832,9 @@ function populateRuns(names) {
   }
 }
 
+/**
+ * Loads and plots the CSV data from the selected run file
+ */
 async function plotSelectedRun() {
   if (!runSelect || !runSelect.value) {
     console.log('Select a run first.');
@@ -2379,9 +2417,7 @@ function initHandlebar() {
     const deltaX = e.clientX - handlebarLastMouse.x;
     const deltaY = e.clientY - handlebarLastMouse.y;
     
-    // Allow both yaw (horizontal drag) and pitch (vertical drag)
-    handlebarRotation.y += deltaX * 0.01; // yaw
-    handlebarRotation.x += deltaY * 0.01; // pitch
+    handlebarRotation.x += deltaY * 0.01;
     
     handlebarLastMouse.x = e.clientX;
     handlebarLastMouse.y = e.clientY;
@@ -2551,7 +2587,7 @@ function frameHandlebar(object3D) {
   
   // Set initial zoom with calculated padding
   handlebarZoom = fitDist * zoomMultiplier;
-  handlebarRotation.x = 0.5; // Slight tilt down
+  handlebarRotation.x = 0.2;
   handlebarRotation.y = 3.1415; // Front view
   
   // Store zoom limits for this model

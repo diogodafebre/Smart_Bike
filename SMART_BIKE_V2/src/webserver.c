@@ -37,6 +37,10 @@ static volatile int g_active_transfers = 0; // boost while >0
 #define TX_POWER_MAX 84  // ~21 dBm (reported/logged as ~20 dBm)
 #define TX_POWER_LOW 84  // ~10 dBm
 
+/**
+ * Dynamically adjusts WiFi TX power based on client connections and transfer activity
+ * Boosts power during active transfers, reduces during idle periods for power saving
+ */
 static void adjust_tx_power(void) {
   // Decide power based on station presence, recent activity, and active transfers
   int8_t desired = TX_POWER_LOW;
@@ -66,6 +70,12 @@ static void adjust_tx_power(void) {
   }
 }
 
+/**
+ * Validates filename/folder name to prevent path traversal attacks
+ * Only allows alphanumeric characters, underscore, hyphen, and dot
+ * @param s String to validate
+ * @return true if safe, false otherwise
+ */
 static bool is_safe_name(const char* s) {
   // Allow letters, digits, underscore, hyphen, dot
   if (!s || !*s) return false;
@@ -117,6 +127,11 @@ static void nvs_save_active_runner(const char* name) {
   }
 }
 
+/**
+ * Determines MIME content type based on file extension
+ * @param path File path with extension
+ * @return MIME type string
+ */
 static const char* contentType(const char* path) {
   const char* ext = strrchr(path, '.');
   if (!ext) return "text/plain";
@@ -1300,6 +1315,10 @@ static httpd_handle_t start_webserver(void) {
   return NULL;
 }
 
+/**
+ * Initializes mDNS responder for service discovery
+ * Makes device accessible via smartbike.local hostname
+ */
 static void start_mdns_service(void)
 {
     // Initialize mDNS service
