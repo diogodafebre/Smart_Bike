@@ -1417,8 +1417,8 @@ function applyChartTheme() {
     
     // Update 3D bike scene to dark background
     if (threeScene) {
-      threeScene.background = new THREE.Color(0x1a1a1a);
-      threeScene.fog = new THREE.Fog(0x1a1a1a, 20, 100);
+      threeScene.background = new THREE.Color(0x191919);
+      threeScene.fog = new THREE.Fog(0x191919, 20, 100);
     }
   } else {
     const update = {
@@ -1447,8 +1447,8 @@ function applyChartTheme() {
     
     // Update 3D bike scene to light background
     if (threeScene) {
-      threeScene.background = new THREE.Color(0xf5f5f5);
-      threeScene.fog = new THREE.Fog(0xf5f5f5, 20, 100);
+      threeScene.background = new THREE.Color(0xffffff);
+      threeScene.fog = new THREE.Fog(0xffffff, 20, 100);
     }
   }
   
@@ -2076,7 +2076,7 @@ function initThree() {
   threeScene = new THREE.Scene();
   // Set initial background based on current theme
   const isDarkTheme = document.body.classList.contains('dark-theme-variables');
-  const sceneBgColor = isDarkTheme ? 0x1a1a1a : 0xf5f5f5;
+  const sceneBgColor = isDarkTheme ? 0x191919 : 0xffffff;
   threeScene.background = new THREE.Color(sceneBgColor);
   threeScene.fog = new THREE.Fog(sceneBgColor, 20, 100);
   threeCamera = new THREE.PerspectiveCamera(45, w/h, 0.1, 100);
@@ -2096,53 +2096,6 @@ function initThree() {
   const dir = new THREE.DirectionalLight(0xffffff, 0.9);
   dir.position.set(3, 5, 2);
   threeScene.add(dir);
-  // Add floor plane under bike wheels (grass/dirt texture)
-  const floorGeometry = new THREE.PlaneGeometry(10, 10);
-  
-  // Create a simple procedural dirt/grass texture
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 512;
-  const ctx = canvas.getContext('2d');
-  
-  // Base grass color (greener)
-  ctx.fillStyle = '#2d5016';
-  ctx.fillRect(0, 0, 512, 512);
-  
-  // Add grass patches (more and brighter)
-  for (let i = 0; i < 8000; i++) {
-    const x = Math.random() * 512;
-    const y = Math.random() * 512;
-    const green = Math.floor(80 + Math.random() * 100);
-    ctx.fillStyle = `rgb(${green * 0.3}, ${green}, ${green * 0.4})`;
-    ctx.fillRect(x, y, 2, Math.random() * 4);
-  }
-  
-  // Add dirt variation (much less)
-  for (let i = 0; i < 800; i++) {
-    const x = Math.random() * 512;
-    const y = Math.random() * 512;
-    const brown = Math.floor(40 + Math.random() * 50);
-    ctx.fillStyle = `rgba(${brown + 30}, ${brown}, ${brown * 0.5}, 0.3)`;
-    ctx.fillRect(x, y, 2, 2);
-  }
-  
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(4, 4);
-  
-  const floorMaterial = new THREE.MeshStandardMaterial({ 
-    map: texture,
-    side: THREE.DoubleSide,
-    roughness: 0.9,
-    metalness: 0.1
-  });
-  const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-  floor.rotation.x = -Math.PI / 2; // Rotate to be horizontal
-  floor.position.y = 0; // At ground level
-  floor.receiveShadow = true;
-  threeScene.add(floor);
   // Load default bike model
   tryLoadBikeModel('MODELS/BIKE/bike.glb.gz');
   // Resize handling
@@ -2283,7 +2236,7 @@ function tryLoadBikeModel(modelFileName = 'MODELS/BIKE/bike.glb.gz') {
       
       // Position pivot at origin
       // Default rotation is applied by applyModelOrientation() in the animation loop
-      pivot.position.set(0, 0.5, 0);
+      pivot.position.set(0, 0, 0);
       
       threeScene.add(pivot);
       bikePivot = pivot;
@@ -2302,7 +2255,7 @@ function tryLoadBikeModel(modelFileName = 'MODELS/BIKE/bike.glb.gz') {
         threeCamera.near = Math.max(0.01, fitDist / 100);
         threeCamera.far = fitDist * 100;
         threeCamera.updateProjectionMatrix();
-        threeCamera.lookAt(center);
+        threeCamera.lookAt(center.x, center.y, center.z);
       }
       
       console.log(`3D model loaded: ${displayName}`);
