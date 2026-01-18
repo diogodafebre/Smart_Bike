@@ -190,16 +190,16 @@ function applyCalibrationUI(enabled) {
   }
 }
 
-function updateCalibrationGrid(rawAdc, voltages) {
+function updateCalibrationGrid(rawAdc, newtons) {
   if (!calibrationCells || calibrationCells.length === 0) return;
   calibrationCells.forEach((cell, idx) => {
     const adcEl = cell.querySelector('.cell-value');
-    const voltEl = cell.querySelector('.cell-subvalue');
+    const newtonEl = cell.querySelector('.cell-subvalue');
     const adcVal = rawAdc && Number.isFinite(rawAdc[idx]) ? rawAdc[idx] : null;
-    const voltVal = voltages && Number.isFinite(voltages[idx]) ? voltages[idx] : null;
+    const newtonVal = newtons && Number.isFinite(newtons[idx]) ? newtons[idx] : null;
     if (adcEl) adcEl.textContent = adcVal !== null ? `${adcVal}` : '--';
-    if (voltEl) voltEl.textContent = voltVal !== null ? `${voltVal.toFixed(3)} V` : '--';
-    cell.classList.toggle('has-data', adcVal !== null || voltVal !== null);
+    if (newtonEl) newtonEl.textContent = newtonVal !== null ? `${newtonVal.toFixed(2)} N` : '--';
+    cell.classList.toggle('has-data', adcVal !== null || newtonVal !== null);
   });
 }
 
@@ -616,7 +616,7 @@ let oriYaw = 0, oriPitch = 0, oriRoll = 0; // radians from sensor data
 const chartLayout = {
   title: '',
   xaxis: { title: 'Time [s]', range: [-1, 30], autorange: false, gridcolor: '#e0e0e0', color: '#666' },
-  yaxis: { title: 'Voltage [V]', range: [-0.2, 3.5], autorange: false, gridcolor: '#e0e0e0', color: '#666' },
+  yaxis: { title: 'Force [N]', range: [-10, 550], autorange: false, gridcolor: '#e0e0e0', color: '#666' },
   margin: { t: 0, r: 0, b: 30, l: 40 },
   showlegend: true,
   legend: { x: 0, y: 1, orientation: 'h' },
@@ -634,15 +634,15 @@ const colors = ['#2196f3', '#4caf50', '#ff9800', '#e91e63'];
 // Sensor mapping:
 // Right grip: 0=Sensor1(top-right), 1=Sensor2(bottom-left), 2=Sensor3(top-left), 3=Sensor4(bottom-right)
 // Left grip: 4=Sensor5(top-right), 5=Sensor6(bottom-left), 6=Sensor7(top-left), 7=Sensor8(bottom-right)
-function getAggregatedSensorData(voltages) {
+function getAggregatedSensorData(newtons) {
   // Right handle aggregation
-  const rightTopSum = voltages[0] + voltages[2]; // Sensors 1 + 3
-  const rightBottomSum = voltages[1] + voltages[3]; // Sensors 2 + 4
+  const rightTopSum = newtons[0] + newtons[2]; // Sensors 1 + 3
+  const rightBottomSum = newtons[1] + newtons[3]; // Sensors 2 + 4
   const rightCompression = Math.abs(rightTopSum - rightBottomSum);
   
   // Left handle aggregation
-  const leftTopSum = voltages[4] + voltages[6]; // Sensors 5 + 7
-  const leftBottomSum = voltages[5] + voltages[7]; // Sensors 6 + 8
+  const leftTopSum = newtons[4] + newtons[6]; // Sensors 5 + 7
+  const leftBottomSum = newtons[5] + newtons[7]; // Sensors 6 + 8
   const leftCompression = Math.abs(leftTopSum - leftBottomSum);
   
   return {
@@ -770,7 +770,9 @@ async function startHttpPolling() {
       let rawAdc = null;
       if (isCalib && Array.isArray(data.raw_adc) && data.raw_adc.length === 8) {
         rawAdc = data.raw_adc.map(v => Number(v));
-        sensorValues = rawAdc.map(v => (v * 3.3) / 4095); // Convert to volts for charts
+        sensorValues = Array.isArray(data.newtons) && data.newtons.length === 8 
+          ? data.newtons.map(v => Number(v)) 
+          : rawAdc.map(v => v / 7.5); // Convert raw ADC to Newtons
       } else if (!isCalib && Array.isArray(data.sensors) && data.sensors.length === 8) {
         sensorValues = data.sensors.map(v => Number(v));
       }
@@ -887,18 +889,18 @@ async function startReplay() {
         const roll = parseFloat(parts[1]);
         const pitch = parseFloat(parts[2]);
         
-        // Convert ADC values to voltages
-        const voltages = [];
+        // Convert ADC values to Newtons (raw ADC / 7.5)
+        const newtons = [];
         for (let j = 0; j < 4; j++) {
           const adcValue = parseInt(parts[3 + j]);
-          voltages.push(((adcValue * 3.3) / 4095));
+          newtons.push(adcValue / 7.5);
         }
         for (let j = 0; j < 4; j++) {
           const adcValue = parseInt(parts[7 + j]);
-          voltages.push(((adcValue * 3.3) / 4095));
+          newtons.push(adcValue / 7.5);
         }
         
-        replayData.push({ timeMs, voltages, roll, pitch });
+        replayData.push({ timeMs, voltages: newtons, roll, pitch });
       }
     } else if (isOldFormat) {
       // Old format: run,time_run_ms,capteur,value_V
@@ -952,11 +954,11 @@ async function startReplay() {
     sensorPressures = [0, 0, 0, 0, 0, 0, 0, 0];
     sensorPressureHistory = [[], [], [], [], [], [], [], []];
     sensorPressureAverages = [0, 0, 0, 0, 0, 0, 0, 0];
-    if (latestPressureEl) latestPressureEl.textContent = '0 V';
+    if (latestPressureEl) latestPressureEl.textContent = '0 N';
     if (sampleCountEl) sampleCountEl.textContent = '0';
     if (durationEl) durationEl.textContent = '0s';
-    if (meanPressureEl) meanPressureEl.textContent = '0 V';
-    if (maxPressureEl) maxPressureEl.textContent = '0 V';
+    if (meanPressureEl) meanPressureEl.textContent = '0 N';
+    if (maxPressureEl) maxPressureEl.textContent = '0 N';
     
     replayIndex = 0;
     t0 = Date.now() - replayData[0].timeMs;
@@ -1026,15 +1028,14 @@ function getXAxisRange(currentTime) {
 }
 
 // Handle incoming sensor data from ESP32
-function handleSensorData(voltages, timestamp, roll, pitch, rawAdc = null) {
-  if (!voltages || voltages.length !== 8) return;
+function handleSensorData(newtons, timestamp, roll, pitch, rawAdc = null) {
+  if (!newtons || newtons.length !== 8) return;
   // Allow updates during replay (isPlottingCSV is true for replay) but not when in historical view
   if (!liveMode && !replayData) return;
   
   // Initialize time reference if needed
   if (t0 == null) {
     t0 = Date.now(); // Use client time for both modes
-    console.log('t0 initialized to:', t0, 'live mode:', liveMode);
   }
   
   // Calculate relative time in seconds
@@ -1046,7 +1047,6 @@ function handleSensorData(voltages, timestamp, roll, pitch, rawAdc = null) {
     // Live mode: calculate elapsed time from first API timestamp
     const elapsedMs = Date.now() - t0;
     seconds = elapsedMs / 1000;
-    console.log('Live: current time:', Date.now(), 't0:', t0, 'elapsed:', elapsedMs, 'seconds:', seconds);
   }
   
   // Update sample count
@@ -1056,11 +1056,11 @@ function handleSensorData(voltages, timestamp, roll, pitch, rawAdc = null) {
 
   const rawValues = Array.isArray(rawAdc) && rawAdc.length === 8 ? rawAdc : null;
   if (calibrationMode) {
-    updateCalibrationGrid(rawValues, voltages);
+    updateCalibrationGrid(rawValues, newtons);
   }
   
-  // Update sensor pressures for handlebar visualization (keep as voltages)
-  sensorPressures = voltages.slice(); // Keep as voltage values (0-3.3V)
+  // Update sensor pressures for handlebar visualization (now in Newtons)
+  sensorPressures = newtons.slice(); // Keep as Newton values (0-546N)
   
   // Update bike rotation if angles are provided
   if (!calibrationMode && roll !== undefined && pitch !== undefined) {
@@ -1072,7 +1072,7 @@ function handleSensorData(voltages, timestamp, roll, pitch, rawAdc = null) {
     updateHandlebarHeatmap();
     
     // Get aggregated sensor data for replay
-    const aggregated = getAggregatedSensorData(voltages);
+    const aggregated = getAggregatedSensorData(newtons);
     
     // Batch the aggregated data for 6 separate charts
     replayBatches.rightTop.x.push(seconds);
@@ -1132,16 +1132,16 @@ function handleSensorData(voltages, timestamp, roll, pitch, rawAdc = null) {
   if (calibrationMode) {
     // In calibration mode: show all 8 individual sensors on 2 charts
     const xDataRight = [[seconds], [seconds], [seconds], [seconds]];
-    const yDataRight = [[voltages[0]], [voltages[1]], [voltages[2]], [voltages[3]]];
+    const yDataRight = [[newtons[0]], [newtons[1]], [newtons[2]], [newtons[3]]];
     
     const xDataLeft = [[seconds], [seconds], [seconds], [seconds]];
-    const yDataLeft = [[voltages[4]], [voltages[5]], [voltages[6]], [voltages[7]]];
+    const yDataLeft = [[newtons[4]], [newtons[5]], [newtons[6]], [newtons[7]]];
     
     Plotly.extendTraces(chartCalibRight, { x: xDataRight, y: yDataRight }, [0, 1, 2, 3]);
     Plotly.extendTraces(chartCalibLeft, { x: xDataLeft, y: yDataLeft }, [0, 1, 2, 3]);
   } else {
     // In default mode: show 6 separate charts (one per metric)
-    const aggregated = getAggregatedSensorData(voltages);
+    const aggregated = getAggregatedSensorData(newtons);
     
     // Debug: log first few samples
     if (sampleCount <= 3) {
@@ -1206,15 +1206,15 @@ function handleSensorData(voltages, timestamp, roll, pitch, rawAdc = null) {
   }
   
   // Update KPI stats
-  const avgVoltage = voltages.reduce((a, b) => a + b, 0) / voltages.length;
-  const maxVoltage = Math.max(...voltages);
+  const avgNewtons = newtons.reduce((a, b) => a + b, 0) / newtons.length;
+  const maxNewtons = Math.max(...newtons);
   
-  sumPressure += avgVoltage;
-  if (avgVoltage > maxPressure) maxPressure = avgVoltage;
+  sumPressure += avgNewtons;
+  if (avgNewtons > maxPressure) maxPressure = avgNewtons;
   
-  if (latestPressureEl) latestPressureEl.textContent = `${avgVoltage.toFixed(2)} V`;
-  if (meanPressureEl) meanPressureEl.textContent = `${(sumPressure / sampleCount).toFixed(2)} V`;
-  if (maxPressureEl && isFinite(maxPressure)) maxPressureEl.textContent = `${maxPressure.toFixed(2)} V`;
+  if (latestPressureEl) latestPressureEl.textContent = `${avgNewtons.toFixed(2)} N`;
+  if (meanPressureEl) meanPressureEl.textContent = `${(sumPressure / sampleCount).toFixed(2)} N`;
+  if (maxPressureEl && isFinite(maxPressure)) maxPressureEl.textContent = `${maxPressure.toFixed(2)} N`;
 }
 
 // Buttons
@@ -2486,15 +2486,15 @@ function updateHandlebarHeatmap() {
     pressuresToUse = sensorPressures;
   }
   
-  // Use fixed voltage range for consistent color mapping
-  const maxPressure = 3.3;  // Max voltage
-  const minPressure = 0.0;  // Min voltage
+  // Use fixed Newton range for consistent color mapping
+  const maxPressure = 546;  // Max force in Newtons
+  const minPressure = 0;    // Min force in Newtons
   
-  // Update legend with fixed voltage range
+  // Update legend with fixed Newton range
   const legendMin = document.getElementById('legend_min');
   const legendMax = document.getElementById('legend_max');
-  if (legendMin) legendMin.textContent = '0.00 [V]';
-  if (legendMax) legendMax.textContent = '3.30 [V]';
+  if (legendMin) legendMin.textContent = '0 [N]';
+  if (legendMax) legendMax.textContent = '546 [N]';
   
   // Find the specific grip meshes by name
   let rightGrip = null;
@@ -2667,7 +2667,7 @@ const I18N = {
     console: 'Console',
     import_run: 'Import run (CSV/TSV)',
     x_axis_time: 'Time [s]',
-    y_axis_voltage: 'Voltage [V]',
+    y_axis_voltage: 'Force [N]',
     right_handle: 'Right',
     left_handle: 'Left',
     // New
@@ -2759,7 +2759,7 @@ const I18N = {
     console: 'Console',
     import_run: 'Importer un run (CSV/TSV)',
     x_axis_time: 'Temps [s]',
-    y_axis_voltage: 'Tension [V]',
+    y_axis_voltage: 'Force [N]',
     right_handle: 'Droite',
     left_handle: 'Gauche',
     layout: 'Disposition',
@@ -2850,7 +2850,7 @@ const I18N = {
     console: 'Konsole',
     import_run: 'Lauf importieren (CSV/TSV)',
     x_axis_time: 'Zeit [s]',
-    y_axis_voltage: 'Spannung [V]',
+    y_axis_voltage: 'Kraft [N]',
     right_handle: 'Rechts',
     left_handle: 'Links',
     layout: 'Layout',
@@ -2960,7 +2960,7 @@ function applyTranslations(lang) {
   
   // Update Plotly axis labels for all 8 charts (only if initialized)
   const xAxisLabel = dict.x_axis_time || 'Time [s]';
-  const yAxisLabel = dict.y_axis_voltage || 'Voltage [V]';
+  const yAxisLabel = dict.y_axis_voltage || 'Force [N]';
   
   const layoutUpdate = {
     'xaxis.title': xAxisLabel,
@@ -3141,7 +3141,7 @@ async function loadAndPlotCSV(filename) {
     
     if (isNewFormat) {
       // New format: Time(ms), Roll(deg), Pitch(deg), FSR_B0, FSR_B1, FSR_B2, FSR_B3, FSR_A0, FSR_A1, FSR_A2, FSR_A3
-      // FSR values are 12-bit ADC values (0-4095), need to convert to voltage (0-3.3V) and multiply by 7
+      // FSR values are 12-bit ADC values (0-4095), convert to Newtons (raw ADC / 7.5)
       for (let i = 1; i < lines.length; i++) {
         const parts = lines[i].split(',').map(s => s.trim());
         if (parts.length < 11) continue;
@@ -3152,17 +3152,17 @@ async function loadAndPlotCSV(filename) {
         // FSR_B0-B3 (Right grip: sensors 1-4)
         for (let j = 0; j < 4; j++) {
           const adcValue = parseInt(parts[3 + j]);
-          const voltage = ((adcValue * 3.3) / 4095); // Convert 12-bit ADC to voltage
+          const newtons = adcValue / 7.5; // Convert ADC to Newtons
           sensorData[j + 1].x.push(timeS);
-          sensorData[j + 1].y.push(voltage);
+          sensorData[j + 1].y.push(newtons);
         }
         
         // FSR_A0-A3 (Left grip: sensors 5-8)
         for (let j = 0; j < 4; j++) {
           const adcValue = parseInt(parts[7 + j]);
-          const voltage = ((adcValue * 3.3) / 4095); // Convert 12-bit ADC to voltage
+          const newtons = adcValue / 7.5; // Convert ADC to Newtons
           sensorData[j + 5].x.push(timeS);
-          sensorData[j + 5].y.push(voltage);
+          sensorData[j + 5].y.push(newtons);
         }
       }
     } else if (isOldFormat) {
@@ -3264,7 +3264,7 @@ async function loadAndPlotCSV(filename) {
     const layoutCSV = {
       title: '',
       xaxis: { title: 'Time (s)', autorange: true },
-      yaxis: { title: 'Voltage (V)' },
+      yaxis: { title: 'Force (N)' },
       margin: { t: 0, r: 0, b: 30, l: 40 },
       showlegend: false
     };
