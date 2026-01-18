@@ -171,10 +171,8 @@ function applyCalibrationUI(enabled) {
     if (chartLeftBottomCard) chartLeftBottomCard.style.display = 'none';
     if (chartLeftCompressionCard) chartLeftCompressionCard.style.display = 'none';
     
-    // Only initialize if not already in calibration mode
-    if (!calibrationMode) {
-      initCalibrationCharts();
-    }
+    // Initialize calibration charts when entering calibration mode
+    initCalibrationCharts();
   } else {
     // Default mode: show 6 separate metric charts
     if (chartCalibRightCard) chartCalibRightCard.style.display = 'none';
@@ -187,10 +185,8 @@ function applyCalibrationUI(enabled) {
     if (chartLeftBottomCard) chartLeftBottomCard.style.display = '';
     if (chartLeftCompressionCard) chartLeftCompressionCard.style.display = '';
     
-    // Only initialize if not already in default mode
-    if (calibrationMode) {
-      initDefaultCharts();
-    }
+    // Initialize default charts when entering default mode
+    initDefaultCharts();
   }
 }
 
