@@ -120,6 +120,7 @@ const btnSettingsMobile = document.getElementById('btn_settings_mobile');
 // Profile / Settings UI
 const profileSelect = document.getElementById('profile_select');
 const btnSetActive = document.getElementById('btn_set_active');
+const btnDeleteProfile = document.getElementById('btn_delete_profile');
 const newRunnerName = document.getElementById('new_runner_name');
 const btnCreateRunner = document.getElementById('btn_create_runner');
 const unsortedList = document.getElementById('unsorted_list');
@@ -462,6 +463,30 @@ btnSetActive && btnSetActive.addEventListener('click', async () => {
   } catch (e) {
     console.error('Failed to set active profile:', e);
     alert('Failed to set active profile: ' + e.message);
+  }
+});
+
+btnDeleteProfile && btnDeleteProfile.addEventListener('click', async () => {
+  const prof = profileSelect.value;
+  if (!prof) {
+    alert('Please select a profile first');
+    return;
+  }
+  
+  // Confirm deletion
+  const confirmMsg = `Are you sure you want to delete the profile "${prof}"?\n\nThis will permanently delete the profile and all its runs. This action cannot be undone.`;
+  if (!confirm(confirmMsg)) {
+    return;
+  }
+  
+  try {
+    await apiPostForm('/api/delete-runner', { name: prof });
+    console.log(`Profile deleted: ${prof}`);
+    alert(`Profile "${prof}" has been deleted`);
+    await refreshProfilesUI();
+  } catch (e) {
+    console.error('Failed to delete profile:', e);
+    alert('Failed to delete profile: ' + e.message);
   }
 });
 
@@ -2829,6 +2854,7 @@ const I18N = {
     profile_title: 'Profile',
     active_profile: 'Active profile',
     set_active: 'Set Active',
+    delete_profile: 'Delete Profile',
     new_runner_placeholder: 'New runner name',
     create_runner: 'Create',
     unsorted_runs: 'Unsorted runs',
@@ -2933,6 +2959,7 @@ const I18N = {
     profile_title: 'Profil',
     active_profile: 'Profil actif',
     set_active: 'Définir actif',
+    delete_profile: 'Supprimer le profil',
     new_runner_placeholder: 'Nom du nouveau coureur',
     create_runner: 'Créer',
     unsorted_runs: 'Runs non triés',
@@ -3037,6 +3064,7 @@ const I18N = {
     profile_title: 'Profil',
     active_profile: 'Aktives Profil',
     set_active: 'Aktivieren',
+    delete_profile: 'Profil löschen',
     new_runner_placeholder: 'Neuer Fahrername',
     create_runner: 'Erstellen',
     unsorted_runs: 'Unsortierte Läufe',
