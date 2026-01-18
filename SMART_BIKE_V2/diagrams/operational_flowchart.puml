@@ -1,0 +1,198 @@
+@startuml Operational Flowchart
+!theme plain
+skinparam linetype ortho
+skinparam backgroundColor #FEFEFE
+skinparam activityBackgroundColor #E6F3FF
+skinparam activityBorderColor #333333
+skinparam activityDiamondBackgroundColor #FFE6E6
+skinparam activityDiamondBorderColor #333333
+skinparam activityStartColor #4CAF50
+skinparam activityEndColor #F44336
+skinparam noteBorderColor #FFA726
+skinparam noteBackgroundColor #FFF3E0
+skinparam partitionBorderColor #666666
+skinparam partitionBackgroundColor #F5F5F5
+
+title Smart Bike System - Operational Lifecycle & State Machine (Code Aligned)
+
+start
+
+:Hardware Power-On;
+note right
+  ESP32-C3 bootloader
+  loads application firmware
+end note
+
+partition "Initialization Sequence" {
+    :Disable Task WDT (esp_task_wdt_deinit);
+    note right: Avoids watchdog resets during long init
+
+    :Init capture stack;
+    note right
+        SD card (SPI + FAT, no auto-format)
+        IMU ICM42670 over I2C
+        FSR ADC + GPIO mux
+        Create 500μs periodic timer (not armed yet)
+        Configure GPIO1 button / GPIO2 LED
+    end note
+
+    :Init web stack;
+    note right
+        NVS flash (erase-if-new-version)
+        Load active runner + calibration flag
+        Mount SPIFFS (format on mount failure)
+        WiFi AP SmartBike (open, ch1, TX power low)
+        mDNS smartbike.local
+        HTTP server + API/static routes
+    end note
+
+    :Start Capture Task;
+    note right
+        Arms 500μs timer
+        Runs capture state machine loop
+    end note
+}
+
+partition "Main Application Loop" {
+    :Idle - Yield Processor;
+    note right
+        All work done in
+        separate task contexts
+    end note
+}
+
+partition "Capture Task Execution Loop" #LightBlue {
+    repeat
+        :Wait for timer notification (500μs tick);
+        note right
+            ISR increments ticks and notifies
+            loop driven entirely by timer
+        end note
+
+        :Edge-detect button (GPIO1);
+        note right
+            Toggle cpt_started
+            Starting resets tick counter
+        end note
+
+        if (cpt_started?) then (yes)
+            :Blink LED (GPIO2) ~250ms;
+        else (no)
+            :LED steady ON;
+        endif
+
+        partition "Finite State Machine" #LightYellow {
+            if (State?) then (IDLE)
+                if (cpt_started) then (true)
+                    #90EE90:Transition to STARTING;
+                else (false)
+                    :Remain IDLE;
+                endif
+
+            elseif (STARTING) then
+                :FSR calibrate (100 samples @10ms);
+                :Find next run index (run_### scan);
+                :Create /sdcard/RUN_###.csv + header;
+                :Reset tick counter (0.5ms ticks -> ms/2);
+                #90EE90:Transition to RUNNING;
+
+            elseif (RUNNING) then
+                :Read sensors -> g_cpt_data;
+                note right
+                    ICM42670 roll/pitch
+                    8 FSR raw + calibrated
+                end note
+                if (elapsed >= 10ms?) then (yes)
+                    #FFE6E6:Transition to WRITE_SD;
+                else (no)
+                    if (cpt_started?) then (false)
+                        #FFE6E6:Transition to STOPPING;
+                    else (true)
+                        :Stay RUNNING;
+                    endif
+                endif
+
+            elseif (WRITE_SD) then
+                :Append CSV row;
+                note right
+                    open/close each write
+                    fields: time_ms, roll, pitch,
+                    4x FSR_B, 4x FSR_A (scaled*OFFSET)
+                end note
+                #90EE90:Transition to RUNNING;
+
+            else (STOPPING)
+                :Log "Capture stopping";
+                :Set cpt_started = false;
+                #90EE90:Transition to IDLE;
+            endif
+        }
+
+    repeat while (timer running) is (yes)
+    ->no;
+}
+
+partition "Web Server Operation\n(Parallel Execution)" #LightGreen {
+    note right
+        Independent task context
+        Event-driven by HTTP requests
+        Normal priority scheduling
+    end note
+    
+    fork
+        :Listen for HTTP Connections;
+        
+        repeat
+            :Accept Client Request;
+
+            if (GET /api/live) then (telemetry)
+                :Read shared data (roll/pitch, FSR raw);
+                note right
+                    calib_mode=true -> raw_adc + newtons
+                    calib_mode=false -> sensors[newtons]
+                end note
+                :Send JSON + mark activity;
+                :adjust_tx_power();
+
+            elseif (POST /api/run/start) then
+                :cpt_start(); // sets flag & resets ticks
+                :Reply {ok:true,active:true};
+
+            elseif (POST /api/run/stop) then
+                :cpt_stop();
+                :Reply {ok:true,active:false};
+
+            elseif (GET /api/runs* | /api/run file)
+                :List or stream RUN files from SD;
+                note right: Increments g_active_transfers for TX power boost
+            elseif (Runner mgmt APIs)
+                :create/delete/rename/move runner dirs;
+                :persist active runner in NVS;
+            elseif (Calibration mode API)
+                :toggle calib flag (NVS persisted);
+            elseif (GET / or static assets)
+                :Serve from SPIFFS (gz if available);
+                :Fallback to SD for assets/models;
+            else
+                :404 Not Found;
+            endif
+
+        repeat while (Server Active?)
+
+    fork again
+        :Monitor Station Connect/Disconnect;
+        :adjust_tx_power() using:
+        note right
+            station count
+            recent /api/live (<=5s)
+            active file transfers
+            TX power max during transfers
+        end note
+        repeat while (Server Active?)
+
+    end fork
+}
+
+stop
+
+@enduml
