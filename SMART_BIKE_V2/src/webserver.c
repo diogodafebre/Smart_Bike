@@ -445,38 +445,42 @@ static esp_err_t api_live_handler(httpd_req_t *req) {
   int len = 0;
   if (g_calibration_mode) {
     int raw_adc[8] = {0};
-    float raw_volt[8] = {0};
+    float newtons[8] = {0};
     cpt_get_latest_raw_adc(raw_adc);
     for (int i = 0; i < 8; i++) {
-      raw_volt[i] = (raw_adc[i] * 3.3f) / 4095.0f;
+      newtons[i] = raw_adc[i] / 7.5f;
     }
 
     len = snprintf(json, sizeof(json),
       "{\"timestamp\":%llu,\"active\":%s,\"run_id\":%lu,\"roll\":%.2f,\"pitch\":%.2f,\"calib_mode\":true,"
       "\"raw_adc\":[%d,%d,%d,%d,%d,%d,%d,%d],"
-      "\"raw_volt\":[%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f]}",
+      "\"newtons\":[%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f]}",
       timestamp_ms,
       active ? "true" : "false",
       (unsigned long)run_id,
       roll,
       pitch,
       raw_adc[0], raw_adc[1], raw_adc[2], raw_adc[3], raw_adc[4], raw_adc[5], raw_adc[6], raw_adc[7],
-      raw_volt[0], raw_volt[1], raw_volt[2], raw_volt[3], raw_volt[4], raw_volt[5], raw_volt[6], raw_volt[7]
+      newtons[0], newtons[1], newtons[2], newtons[3], newtons[4], newtons[5], newtons[6], newtons[7]
     );
   } else {
-    float voltages[8];
-    cpt_get_latest_voltages(voltages);
+    int raw_adc[8] = {0};
+    float newtons[8] = {0};
+    cpt_get_latest_raw_adc(raw_adc);
+    for (int i = 0; i < 8; i++) {
+      newtons[i] = raw_adc[i] / 7.5f;
+    }
 
     len = snprintf(json, sizeof(json),
       "{\"timestamp\":%llu,\"active\":%s,\"run_id\":%lu,\"roll\":%.2f,\"pitch\":%.2f,\"calib_mode\":false,\"sensors\":["
-      "%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f]}",
+      "%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f]}",
       timestamp_ms,
       active ? "true" : "false",
       (unsigned long)run_id,
       roll,
       pitch,
-      voltages[0], voltages[1], voltages[2], voltages[3],
-      voltages[4], voltages[5], voltages[6], voltages[7]
+      newtons[0], newtons[1], newtons[2], newtons[3],
+      newtons[4], newtons[5], newtons[6], newtons[7]
     );
   }
 
@@ -730,6 +734,72 @@ static esp_err_t api_create_runner_handler(httpd_req_t *req) {
   }
   if (mkdir(dir, 0775) != 0) { httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "mkdir failed"); return ESP_FAIL; }
   httpd_resp_set_type(req, "application/json");
+  httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
+  return ESP_OK;
+}
+
+// Helper function to recursively delete a directory
+static int rmdir_recursive(const char *path) {
+  DIR *d = opendir(path);
+  if (!d) return -1;
+  
+  struct dirent *entry;
+  int ret = 0;
+  
+  while ((entry = readdir(d)) != NULL) {
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
+    
+    char fullpath[512];
+    snprintf(fullpath, sizeof(fullpath), "%s/%s", path, entry->d_name);
+    
+    if (entry->d_type == DT_DIR) {
+      ret = rmdir_recursive(fullpath);
+    } else {
+      ret = unlink(fullpath);
+    }
+    
+    if (ret != 0) break;
+  }
+  
+  closedir(d);
+  if (ret == 0) ret = rmdir(path);
+  return ret;
+}
+
+// API: POST /api/delete-runner with form body name=<runner>
+static esp_err_t api_delete_runner_handler(httpd_req_t *req) {
+  char buf[96]; int total=0; int to_read=req->content_len;
+  while (to_read>0 && total<(int)sizeof(buf)-1) {
+    int r=httpd_req_recv(req, buf+total, to_read > (int)sizeof(buf)-1-total ? (int)sizeof(buf)-1-total : to_read);
+    if (r<=0) {
+      break;
+    }
+    total+=r;
+    to_read-=r;
+  }
+  buf[total]='\0';
+  char* np = strstr(buf, "name=");
+  if (!np) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "missing name"); return ESP_FAIL; }
+  char name[64]={0}; sscanf(np, "name=%63[^&]", name);
+  if (!is_safe_name(name)) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad name"); return ESP_FAIL; }
+  
+  // Prevent deletion of reserved directory
+  if (strcmp(name, ".") == 0) {
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "cannot delete root"); return ESP_FAIL;
+  }
+  
+  // If this is the active runner, clear it
+  if (strcmp(g_active_runner, name) == 0) {
+    g_active_runner[0] = '\0';
+  }
+  
+  char dir[160]; snprintf(dir, sizeof(dir), "/sdcard/%s", name);
+  if (rmdir_recursive(dir) != 0) { 
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "delete failed"); 
+    return ESP_FAIL; 
+  }
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
   return ESP_OK;
 }
@@ -1036,7 +1106,7 @@ static void init_wifi_ap(void) {
 static httpd_handle_t start_webserver(void) {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.uri_match_fn = httpd_uri_match_wildcard;
-  config.max_uri_handlers = 20;  // Increased for API endpoints
+  config.max_uri_handlers = 21;  // Increased for API endpoints (added delete-runner)
   config.max_open_sockets = 7;  // Allow more concurrent connections
   config.lru_purge_enable = true;  // Enable LRU purge for connection management
   config.stack_size = 8192;  // Increase stack size for handlers
@@ -1121,6 +1191,14 @@ static httpd_handle_t start_webserver(void) {
       .user_ctx  = NULL
     };
     httpd_register_uri_handler(server, &api_create_runner_uri);
+
+    httpd_uri_t api_delete_runner_uri = {
+      .uri       = "/api/delete-runner",
+      .method    = HTTP_POST,
+      .handler   = api_delete_runner_handler,
+      .user_ctx  = NULL
+    };
+    httpd_register_uri_handler(server, &api_delete_runner_uri);
 
     httpd_uri_t api_rename_run_uri = {
       .uri       = "/api/rename-run",

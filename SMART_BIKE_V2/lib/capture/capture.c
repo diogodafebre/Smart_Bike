@@ -100,10 +100,15 @@ void cpt_start_task() {
     }
     ESP_LOGI(TAG, "Starting Capture task...");
     running = true;
+    // Start periodic timer (500 microseconds = 0.5ms per tick)
+    esp_timer_start_periodic(timer_handle, 500);
     cpt_task();
 }
 
 void IRAM_ATTR timer_callback(void* arg) {
+    // Increment time counter independently of task execution
+    cpt_time_ticks++;
+    
     TaskHandle_t taskToNotify = (TaskHandle_t)arg;
 
     // Réveille la tâche principale
@@ -121,6 +126,9 @@ static esp_err_t cpt_init_timer(void) {
 
 void cpt_deinit(void) {
     ESP_LOGI(TAG, "Capture Deinit started");
+    if (timer_handle) {
+        esp_timer_stop(timer_handle);
+    }
     sd_deinit();
     ESP_LOGI(TAG, "SD Deinit done");
     ESP_LOGI(TAG, "Capture Deinit done");
@@ -291,7 +299,7 @@ void cpt_get_latest_angles(float* roll, float* pitch) {
 }
 
 esp_err_t cpt_task_once(void) {
-    static uint32_t last_tick_time = 0;
+    static uint64_t last_tick_time = 0;
     static uint32_t count_led_blink = 0;
     static bool on = false;
     static bool last_button_state = 1;  // Button is high when not pressed
@@ -360,6 +368,7 @@ esp_err_t cpt_task_once(void) {
                 break;
             case CPT_STATE_STARTING:
                 ESP_LOGI(TAG, "Capture starting...");
+                last_tick_time = 0;  // Reset timing for new run
                 ESP_RETURN_ON_ERROR(cpt_task_start(), TAG, "Capture start task failed");
                 break;
             case CPT_STATE_RUNNING:
@@ -401,8 +410,7 @@ static esp_err_t cpt_task(void) {
     while (1) {
         esp_err_t ret = cpt_task_once();
         ESP_RETURN_ON_ERROR(ret, TAG, "Capture task once failed");
-        cpt_time_ticks += 1;
-        esp_timer_start_once(timer_handle, 500);
+        // Timer increments cpt_time_ticks independently in ISR
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         // vTaskDelay(pdMS_TO_TICKS(1));
     }
