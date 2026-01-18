@@ -2179,10 +2179,8 @@ function updateBikeRotation(roll, pitch) {
   if (!bikePivot) return;
   
   // Convert degrees to radians and apply rotation
-  // Roll: rotation around Z axis (bike tilting left/right)
-  // Pitch: rotation around X axis (bike tilting forward/backward)
-  oriRoll = roll * (Math.PI / 180);
-  oriPitch = pitch * (Math.PI / 180);
+  oriRoll = -pitch * (Math.PI / 180);
+  oriPitch = roll * (Math.PI / 180);
 }
 
 // Update bike rotation based on IMU data at a specific time
