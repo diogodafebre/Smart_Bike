@@ -192,15 +192,6 @@ function applyCalibrationUI(enabled) {
       initDefaultCharts();
     }
   }
-  
-  // Clear data buffers when switching modes
-  t0 = null;
-  sampleCount = 0;
-  sumPressure = 0;
-  maxPressure = -Infinity;
-  sensorPressures = [0, 0, 0, 0, 0, 0, 0, 0];
-  sensorPressureHistory = [[], [], [], [], [], [], [], []];
-  sensorPressureAverages = [0, 0, 0, 0, 0, 0, 0, 0];
 }
 
 function updateCalibrationGrid(rawAdc, voltages) {
@@ -755,9 +746,20 @@ async function startHttpPolling() {
       // data = { timestamp: <ms>, active: <bool>, run_id: <int>, roll: <deg>, pitch: <deg>, calib_mode: <bool>, sensors: [v1,...v8] || raw_adc: [adc1,...adc8] }
       
       const isCalib = !!data.calib_mode;
+      const modeChanged = calibrationMode !== isCalib;
       calibrationMode = isCalib;
       if (calibrationModeToggle) calibrationModeToggle.checked = calibrationMode;
-      applyCalibrationUI(calibrationMode);
+      if (modeChanged) {
+        applyCalibrationUI(calibrationMode);
+        // Clear data buffers when switching modes
+        t0 = null;
+        sampleCount = 0;
+        sumPressure = 0;
+        maxPressure = -Infinity;
+        sensorPressures = [0, 0, 0, 0, 0, 0, 0, 0];
+        sensorPressureHistory = [[], [], [], [], [], [], [], []];
+        sensorPressureAverages = [0, 0, 0, 0, 0, 0, 0, 0];
+      }
 
       // Adjust polling interval based on state
       const desiredInterval = isCalib ? 50 : (data.active ? 100 : 1000);
@@ -801,6 +803,7 @@ async function startHttpPolling() {
   };
   
   // Start polling immediately and then at dynamic interval
+  t0 = null; // Reset time reference for live mode
   fetchLiveData();
   pollingTimer = setInterval(fetchLiveData, pollingIntervalMs);
   console.log('HTTP polling started');
@@ -1034,7 +1037,8 @@ function handleSensorData(voltages, timestamp, roll, pitch, rawAdc = null) {
   
   // Initialize time reference if needed
   if (t0 == null) {
-    t0 = Date.now(); // Start client-side timer
+    t0 = Date.now(); // Use client time for both modes
+    console.log('t0 initialized to:', t0, 'live mode:', liveMode);
   }
   
   // Calculate relative time in seconds
@@ -1043,9 +1047,10 @@ function handleSensorData(voltages, timestamp, roll, pitch, rawAdc = null) {
     // Replay mode: use the timestamp from the CSV data (already in ms)
     seconds = timestamp / 1000;
   } else {
-    // Live mode: calculate elapsed time from client side to avoid network delays
+    // Live mode: calculate elapsed time from first API timestamp
     const elapsedMs = Date.now() - t0;
     seconds = elapsedMs / 1000;
+    console.log('Live: current time:', Date.now(), 't0:', t0, 'elapsed:', elapsedMs, 'seconds:', seconds);
   }
   
   // Update sample count
@@ -1559,24 +1564,8 @@ window.addEventListener('load', () => {
         // Start HTTP polling for live data
         startHttpPolling();
         
-        // Clear all 6 charts for default mode
-        const emptyTrace = [{ x: [], y: [], mode: 'lines', line: { color: '#1976d2', width: 3 } }];
-        const singleTraceLayout = { ...chartLayout, showlegend: false };
-        
-        Plotly.react(chartRightTop, emptyTrace, singleTraceLayout, chartConfig);
-        Plotly.react(chartRightBottom, emptyTrace, singleTraceLayout, chartConfig);
-        Plotly.react(chartRightCompression, emptyTrace, singleTraceLayout, chartConfig);
-        Plotly.react(chartLeftTop, emptyTrace, singleTraceLayout, chartConfig);
-        Plotly.react(chartLeftBottom, emptyTrace, singleTraceLayout, chartConfig);
-        Plotly.react(chartLeftCompression, emptyTrace, singleTraceLayout, chartConfig);
-        
-        // Reset axis ranges when switching to live mode
-        Plotly.relayout(chartRightTop, { 'xaxis.autorange': true, 'yaxis.autorange': true });
-        Plotly.relayout(chartRightBottom, { 'xaxis.autorange': true, 'yaxis.autorange': true });
-        Plotly.relayout(chartRightCompression, { 'xaxis.autorange': true, 'yaxis.autorange': true });
-        Plotly.relayout(chartLeftTop, { 'xaxis.autorange': true, 'yaxis.autorange': true });
-        Plotly.relayout(chartLeftBottom, { 'xaxis.autorange': true, 'yaxis.autorange': true });
-        Plotly.relayout(chartLeftCompression, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+        // Reinitialize default charts with proper colors
+        initDefaultCharts();
         
         // Reset sensor pressures and history
         sensorPressures = [0, 0, 0, 0, 0, 0, 0, 0];
@@ -3289,7 +3278,7 @@ async function loadAndPlotCSV(filename) {
       x: aggregatedData.rightTopSum.x, 
       y: aggregatedData.rightTopSum.y, 
       mode: 'lines', 
-      line: { color: '#1976d2', width: 2 }, 
+      line: { color: '#1976d2', width: 3 }, 
       name: 'Top Sum' 
     }], layoutCSV, chartConfig);
     
@@ -3297,7 +3286,7 @@ async function loadAndPlotCSV(filename) {
       x: aggregatedData.rightBottomSum.x, 
       y: aggregatedData.rightBottomSum.y, 
       mode: 'lines', 
-      line: { color: '#1976d2', width: 2 }, 
+      line: { color: '#388e3c', width: 3 }, 
       name: 'Bottom Sum' 
     }], layoutCSV, chartConfig);
     
@@ -3305,7 +3294,7 @@ async function loadAndPlotCSV(filename) {
       x: aggregatedData.rightCompression.x, 
       y: aggregatedData.rightCompression.y, 
       mode: 'lines', 
-      line: { color: '#1976d2', width: 2 }, 
+      line: { color: '#c2185b', width: 3 }, 
       name: 'Compression' 
     }], layoutCSV, chartConfig);
     
@@ -3313,7 +3302,7 @@ async function loadAndPlotCSV(filename) {
       x: aggregatedData.leftTopSum.x, 
       y: aggregatedData.leftTopSum.y, 
       mode: 'lines', 
-      line: { color: '#1976d2', width: 2 }, 
+      line: { color: '#1976d2', width: 3 }, 
       name: 'Top Sum' 
     }], layoutCSV, chartConfig);
     
@@ -3321,7 +3310,7 @@ async function loadAndPlotCSV(filename) {
       x: aggregatedData.leftBottomSum.x, 
       y: aggregatedData.leftBottomSum.y, 
       mode: 'lines', 
-      line: { color: '#1976d2', width: 2 }, 
+      line: { color: '#388e3c', width: 3 }, 
       name: 'Bottom Sum' 
     }], layoutCSV, chartConfig);
     
@@ -3329,7 +3318,7 @@ async function loadAndPlotCSV(filename) {
       x: aggregatedData.leftCompression.x, 
       y: aggregatedData.leftCompression.y, 
       mode: 'lines', 
-      line: { color: '#1976d2', width: 2 }, 
+      line: { color: '#c2185b', width: 3 }, 
       name: 'Compression' 
     }], layoutCSV, chartConfig);
     
