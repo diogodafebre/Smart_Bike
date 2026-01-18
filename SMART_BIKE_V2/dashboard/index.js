@@ -2309,7 +2309,7 @@ function initHandlebar() {
 }
 
 function onHandlebarResize() {
-  if (!handlebarRenderer || !handlebarCamera) return;
+  if (!handlebarRenderer || !handlebarCamera || !handlebarModel) return;
   const container = document.getElementById('handlebar_container');
   if (!container) return;
   const w = Math.max(1, container.clientWidth);
@@ -2317,6 +2317,22 @@ function onHandlebarResize() {
   handlebarCamera.aspect = w / h;
   handlebarCamera.updateProjectionMatrix();
   handlebarRenderer.setSize(w, h);
+  
+  // Recalculate zoom based on new container size
+  const box = new THREE.Box3().setFromObject(handlebarModel);
+  const size = box.getSize(new THREE.Vector3());
+  const fov = handlebarCamera.fov * (Math.PI / 180);
+  const vFovHalf = fov / 2;
+  const hFovHalf = Math.atan(Math.tan(vFovHalf) * (w / h));
+  const fitDist = (size.x / 2) / Math.tan(hFovHalf);
+  
+  // Dynamic multiplier based on column layout
+  const zoomMultiplier = calculateHandlebarZoomMultiplier(w);
+  
+  handlebarZoom = fitDist * zoomMultiplier;
+  
+  // Update camera position with new zoom
+  updateHandlebarCamera();
 }
 
 function updateHandlebarCamera() {
@@ -2376,6 +2392,21 @@ function loadHandlebarModel(modelFileName) {
   });
 }
 
+function calculateHandlebarZoomMultiplier(containerWidth) {
+  // Single column layout: <768px
+  if (containerWidth < 768) {
+    const minWidth = 300;
+    const maxWidth = 768;
+    const normalized = Math.max(0, Math.min(1, (containerWidth - minWidth) / (maxWidth - minWidth)));
+    return 1.5 - (normalized * 0.07);
+  }
+  
+  // Dual column layout: >=768px
+  const minWidth = 768;
+  const maxWidth = 2400;
+  const normalized = Math.max(0, Math.min(1, (containerWidth - minWidth) / (maxWidth - minWidth)));
+  return 1.5 - (normalized * 0.3);
+}
 
 function frameHandlebar(object3D) {
   if (!handlebarCamera) return;
@@ -2395,17 +2426,33 @@ function frameHandlebar(object3D) {
     box.getCenter(handlebarCenter);
   }
   
-  const fov = handlebarCamera.fov * (Math.PI / 180);
-  const fitDist = (Math.max(size.x, size.y, size.z) / 2) / Math.tan(fov / 2);
+  // Get actual container dimensions
+  const container = document.getElementById('handlebar_container');
+  const containerWidth = container ? container.clientWidth : 400;
+  const containerHeight = container ? container.clientHeight : 300;
+  const actualAspect = containerWidth / containerHeight;
   
-  // Set initial zoom and rotation based on model size
-  handlebarZoom = fitDist * 1.5; // Start a bit further back
+  const fov = handlebarCamera.fov * (Math.PI / 180);
+  
+  // Handlebar is long horizontally, short vertically
+  // Only fit based on X dimension (width) using horizontal FOV calculated from actual container
+  const vFovHalf = fov / 2;
+  const hFovHalf = Math.atan(Math.tan(vFovHalf) * actualAspect);
+  
+  // Calculate distance needed to fit the width
+  const fitDist = (size.x / 2) / Math.tan(hFovHalf);
+  
+  // Dynamic multiplier based on column layout
+  const zoomMultiplier = calculateHandlebarZoomMultiplier(containerWidth);
+  
+  // Set initial zoom with calculated padding
+  handlebarZoom = fitDist * zoomMultiplier;
   handlebarRotation.x = 0.5; // Slight tilt down
   handlebarRotation.y = 3.1415; // Front view
   
   // Store zoom limits for this model
   handlebarZoom.min = fitDist * 0.3;
-  handlebarZoom.max = fitDist * 5;
+  handlebarZoom.max = fitDist * 2;
   
   handlebarCamera.near = Math.max(0.01, fitDist / 100);
   handlebarCamera.far = fitDist * 100;
