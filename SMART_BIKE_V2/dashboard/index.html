@@ -26,6 +26,44 @@
         <span class="brand-name">Smart Bike</span>
       </div>
       
+      <!-- Hamburger menu button (mobile only) -->
+      <button id="hamburger_menu_btn" class="hamburger-btn" aria-label="Menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+      
+      <!-- Mobile menu overlay -->
+      <div id="mobile_menu" class="mobile-menu">
+        <div class="mobile-menu-content">
+          <div class="mobile-menu-controls">
+            <div class="control-group">
+              <label class="control-label">
+                <input type="checkbox" id="live_data_toggle_mobile" />
+                <span data-i18n="live_data">Live Data</span>
+              </label>
+            </div>
+            <div id="run_selector_container_mobile" class="control-group" style="display: none;">
+              <label for="run_selector_mobile" data-i18n="select_run">Select Run:</label>
+              <select id="run_selector_mobile" class="select">
+                <option value="" data-i18n="no_run_selected">-- No run selected --</option>
+              </select>
+            </div>
+            <div class="control-group">
+              <span data-i18n="active_profile_label">Profile:</span>
+              <strong id="active_profile_name_mobile" class="profile-name">--</strong>
+            </div>
+          </div>
+          <div class="mobile-menu-actions">
+            <button id="btn_run_control_mobile" class="btn" style="display:none" data-i18n="start_run">Start run</button>
+            <button id="btn_replay_csv_mobile" class="btn" style="display:none" data-i18n="replay_run">Replay</button>
+            <button id="btn_clear_chart_mobile" class="btn" data-i18n="clear_chart">Clear chart</button>
+            <button id="btn_profile_mobile" class="btn" data-i18n="profile_title">Profile</button>
+            <button id="btn_settings_mobile" class="btn" data-i18n="settings_title">Settings</button>
+          </div>
+        </div>
+      </div>
+      
       <div class="topbar-controls">
         <div class="control-group">
           <label class="control-label">

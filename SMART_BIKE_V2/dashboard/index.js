@@ -104,6 +104,19 @@ const activeProfileNameEl = document.getElementById('active_profile_name');
 const btnRunControl = document.getElementById('btn_run_control');
 const btnReplayCSV = document.getElementById('btn_replay_csv');
 
+// Mobile menu elements
+const hamburgerBtn = document.getElementById('hamburger_menu_btn');
+const mobileMenu = document.getElementById('mobile_menu');
+const liveDataToggleMobile = document.getElementById('live_data_toggle_mobile');
+const runSelectorMobile = document.getElementById('run_selector_mobile');
+const runSelectorContainerMobile = document.getElementById('run_selector_container_mobile');
+const activeProfileNameMobile = document.getElementById('active_profile_name_mobile');
+const btnRunControlMobile = document.getElementById('btn_run_control_mobile');
+const btnReplayCSVMobile = document.getElementById('btn_replay_csv_mobile');
+const btnClearChartMobile = document.getElementById('btn_clear_chart_mobile');
+const btnProfileMobile = document.getElementById('btn_profile_mobile');
+const btnSettingsMobile = document.getElementById('btn_settings_mobile');
+
 // Profile / Settings UI
 const profileSelect = document.getElementById('profile_select');
 const btnSetActive = document.getElementById('btn_set_active');
@@ -246,6 +259,9 @@ async function refreshProfilesUI() {
     if (activeProfileNameEl) {
       activeProfileNameEl.textContent = active || 'None';
     }
+    if (activeProfileNameMobile) {
+      activeProfileNameMobile.textContent = active || 'None';
+    }
     
     // Populate lists
     await refreshRunsLists();
@@ -311,6 +327,9 @@ async function loadActiveProfileAndRuns() {
     if (activeProfileNameEl) {
       activeProfileNameEl.textContent = activeRunner || 'None';
     }
+    if (activeProfileNameMobile) {
+      activeProfileNameMobile.textContent = activeRunner || 'None';
+    }
     
     // Populate run selector with runs from active profile and unsorted
     if (runSelector) {
@@ -346,10 +365,18 @@ async function loadActiveProfileAndRuns() {
         runSelector.appendChild(unsortedGroup);
       }
     }
+    
+    // Sync mobile run selector
+    if (runSelectorMobile) {
+      runSelectorMobile.innerHTML = runSelector.innerHTML;
+    }
   } catch (e) {
     console.error('Failed loading active profile and runs:', e);
     if (activeProfileNameEl) {
       activeProfileNameEl.textContent = 'Error';
+    }
+    if (activeProfileNameMobile) {
+      activeProfileNameMobile.textContent = 'Error';
     }
   }
 }
@@ -359,6 +386,67 @@ profileClose && profileClose.addEventListener('click', hideProfileModal);
 btnSettings && btnSettings.addEventListener('click', showSettingsModal);
 settingsClose && settingsClose.addEventListener('click', hideSettingsModal);
 profileSelect && profileSelect.addEventListener('change', refreshRunsLists);
+
+// Mobile menu event handlers
+if (hamburgerBtn && mobileMenu) {
+  hamburgerBtn.addEventListener('click', () => {
+    hamburgerBtn.classList.toggle('active');
+    mobileMenu.classList.toggle('active');
+  });
+  
+  // Close mobile menu when clicking outside
+  mobileMenu.addEventListener('click', (e) => {
+    if (e.target === mobileMenu) {
+      hamburgerBtn.classList.remove('active');
+      mobileMenu.classList.remove('active');
+    }
+  });
+}
+
+// Sync mobile buttons with desktop buttons
+btnProfileMobile && btnProfileMobile.addEventListener('click', () => {
+  hamburgerBtn.classList.remove('active');
+  mobileMenu.classList.remove('active');
+  showProfileModal();
+});
+
+btnSettingsMobile && btnSettingsMobile.addEventListener('click', () => {
+  hamburgerBtn.classList.remove('active');
+  mobileMenu.classList.remove('active');
+  showSettingsModal();
+});
+
+btnClearChartMobile && btnClearChartMobile.addEventListener('click', () => {
+  hamburgerBtn.classList.remove('active');
+  mobileMenu.classList.remove('active');
+  if (clearChartBtn) clearChartBtn.click();
+});
+
+// Sync live data toggle between desktop and mobile
+if (liveDataToggle && liveDataToggleMobile) {
+  liveDataToggleMobile.checked = liveDataToggle.checked;
+  
+  liveDataToggle.addEventListener('change', () => {
+    liveDataToggleMobile.checked = liveDataToggle.checked;
+  });
+  
+  liveDataToggleMobile.addEventListener('change', () => {
+    liveDataToggle.checked = liveDataToggleMobile.checked;
+    liveDataToggle.dispatchEvent(new Event('change'));
+  });
+}
+
+// Sync run selector between desktop and mobile
+if (runSelector && runSelectorMobile) {
+  runSelectorMobile.addEventListener('change', () => {
+    runSelector.value = runSelectorMobile.value;
+    runSelector.dispatchEvent(new Event('change'));
+  });
+  
+  runSelector.addEventListener('change', () => {
+    runSelectorMobile.value = runSelector.value;
+  });
+}
 
 btnSetActive && btnSetActive.addEventListener('click', async () => {
   const prof = profileSelect.value;
@@ -830,6 +918,13 @@ function updateRunButton() {
   btnRunControl.style.display = liveMode ? '' : 'none';
   btnRunControl.textContent = runActive ? t('stop_run') : t('start_run');
   btnRunControl.disabled = !liveMode;
+  
+  // Sync mobile button
+  if (btnRunControlMobile) {
+    btnRunControlMobile.style.display = liveMode ? '' : 'none';
+    btnRunControlMobile.textContent = runActive ? t('stop_run') : t('start_run');
+    btnRunControlMobile.disabled = !liveMode;
+  }
 }
 
 function stopReplay() {
@@ -1516,6 +1611,14 @@ window.addEventListener('load', () => {
       updateRunButton();
     }
   });
+  
+  // Mobile run control button
+  if (btnRunControlMobile) btnRunControlMobile.addEventListener('click', async () => {
+    hamburgerBtn.classList.remove('active');
+    mobileMenu.classList.remove('active');
+    if (btnRunControl) btnRunControl.click();
+  });
+  
   langButtonsSettings.forEach(btn => btn.addEventListener('click', () => setLanguage(btn.dataset.lang)));
   setLanguage(loadLangPref());
   
@@ -1549,9 +1652,13 @@ window.addEventListener('load', () => {
       if (runSelectorContainer) {
         runSelectorContainer.style.display = isLiveMode ? 'none' : 'block';
       }
+      if (runSelectorContainerMobile) {
+        runSelectorContainerMobile.style.display = isLiveMode ? 'none' : 'block';
+      }
       if (isLiveMode) {
         stopReplay();
         if (btnReplayCSV) btnReplayCSV.style.display = 'none';
+        if (btnReplayCSVMobile) btnReplayCSVMobile.style.display = 'none';
         // Switch to live mode
         liveMode = true;
         isPlottingCSV = false;
@@ -1606,6 +1713,11 @@ window.addEventListener('load', () => {
   
   if (btnRenameRun) btnRenameRun.addEventListener('click', renameSelectedRun);
   if (btnReplayCSV) btnReplayCSV.addEventListener('click', startReplay);
+  if (btnReplayCSVMobile) btnReplayCSVMobile.addEventListener('click', () => {
+    hamburgerBtn.classList.remove('active');
+    mobileMenu.classList.remove('active');
+    startReplay();
+  });
   if (runnerFilterSel) runnerFilterSel.addEventListener('change', filterRunsByRunner);
   applyLayout('live');
   setActiveNav('live');
@@ -1704,6 +1816,11 @@ function populateFieldSelectors(fields) {
     const hasTime = fields.includes('Time(ms)') || fields.includes('time_run_ms');
     const hasFSR = fields.some(f => f.includes('FSR_'));
     btnReplayCSV.style.display = (hasTime && hasFSR) ? '' : 'none';
+  }
+  if (btnReplayCSVMobile) {
+    const hasTime = fields.includes('Time(ms)') || fields.includes('time_run_ms');
+    const hasFSR = fields.some(f => f.includes('FSR_'));
+    btnReplayCSVMobile.style.display = (hasTime && hasFSR) ? '' : 'none';
   }
   if (dualAxisChk) dualAxisChk.onchange = () => replotCurrent();
 }
@@ -3386,6 +3503,9 @@ async function loadAndPlotCSV(filename) {
     // Show replay button for CSV with time-series data
     if (btnReplayCSV) {
       btnReplayCSV.style.display = '';
+    }
+    if (btnReplayCSVMobile) {
+      btnReplayCSVMobile.style.display = '';
     }
     
     // Update KPIs if elements exist
