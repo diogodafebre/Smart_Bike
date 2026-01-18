@@ -2185,6 +2185,28 @@ function updateBikeRotation(roll, pitch) {
   oriPitch = pitch * (Math.PI / 180);
 }
 
+// Update bike rotation based on IMU data at a specific time
+function updateBikeRotationAtTime(time) {
+  if (!bikePivot || imuDataHistory.time.length === 0) return;
+  
+  // Find the closest IMU sample to the requested time
+  let closest = 0;
+  let minDiff = Math.abs(imuDataHistory.time[0] - time);
+  
+  for (let i = 1; i < imuDataHistory.time.length; i++) {
+    const diff = Math.abs(imuDataHistory.time[i] - time);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closest = i;
+    }
+  }
+  
+  // Apply the rotation at this time point
+  const roll = imuDataHistory.roll[closest];
+  const pitch = imuDataHistory.pitch[closest];
+  updateBikeRotation(roll, pitch);
+}
+
 function tryLoadBikeModel(modelFileName = 'MODELS/BIKE/bike.glb.gz') {
   // In production on device; if not available, just render the rest of the page
   if (location.protocol === 'file:') {
@@ -2333,6 +2355,7 @@ let sensorPressureHistory = [[], [], [], [], [], [], [], []]; // Store history f
 let sensorPressureAverages = [0, 0, 0, 0, 0, 0, 0, 0]; // Averaged values for heatmap
 let useAveragePressure = true; // Toggle between current and average
 let hoverTime = null; // Time value when hovering over graph
+let imuDataHistory = { time: [], roll: [], pitch: [] }; // Store IMU data from CSV for hover
 // Replay chart buffering to avoid lag when points are ~10ms apart
 // For 6 separate charts (one per metric)
 let replayBatches = {
@@ -2617,6 +2640,9 @@ function updateHandlebarHeatmap() {
       }
       pressuresToUse[i] = closest.pressure;
     }
+    
+    // Also update bike rotation at this time point
+    updateBikeRotationAtTime(hoverTime);
   } else if (liveMode || replayData) {
     // In live mode or replay mode, always use current/instant values (no averaging)
     pressuresToUse = sensorPressures;
@@ -3319,6 +3345,7 @@ async function loadAndPlotCSV(filename) {
     
     // Group data by sensor
     const sensorData = {};
+    const imuData = { time: [], roll: [], pitch: [] }; // Store IMU data for hover
     for (let i = 1; i <= 8; i++) {
       sensorData[i] = { x: [], y: [] };
     }
@@ -3332,6 +3359,13 @@ async function loadAndPlotCSV(filename) {
         
         const timeMs = parseFloat(parts[0]);
         const timeS = timeMs / 1000; // Convert to seconds
+        const roll = parseFloat(parts[1]);
+        const pitch = parseFloat(parts[2]);
+        
+        // Store IMU data
+        imuData.time.push(timeS);
+        imuData.roll.push(roll);
+        imuData.pitch.push(pitch);
         
         // FSR_B0-B3 (Right grip: sensors 1-4)
         for (let j = 0; j < 4; j++) {
@@ -3367,6 +3401,9 @@ async function loadAndPlotCSV(filename) {
     } else {
       throw new Error('Unknown CSV format');
     }
+    
+    // Store IMU data globally for hover functionality
+    imuDataHistory = imuData;
     
     // Stop live mode and clear charts
     isPlottingCSV = true;
@@ -3520,10 +3557,14 @@ async function loadAndPlotCSV(filename) {
     chartRightTop.on('plotly_unhover', () => {
       hoverTime = null;
       updateHandlebarHeatmap();
+      // Reset bike to neutral position
+      if (bikePivot) updateBikeRotation(0, 0);
     });
     chartLeftTop.on('plotly_unhover', () => {
       hoverTime = null;
       updateHandlebarHeatmap();
+      // Reset bike to neutral position
+      if (bikePivot) updateBikeRotation(0, 0);
     });
     
     console.log(`Loaded ${filename} with ${lines.length - 1} samples`);
