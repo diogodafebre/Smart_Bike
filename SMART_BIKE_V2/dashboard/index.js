@@ -679,28 +679,28 @@ function initDefaultCharts() {
   
   // Right handle charts
   Plotly.newPlot(chartRightTop, [
-    { x: [], y: [], mode: 'lines', line: { color: '#1976d2', width: 3 }, name: 'Top Sum' }
+    { x: [], y: [], mode: 'lines', line: { color: '#1976d2', width: 3 }, name: t('chart_right_top') }
   ], singleTraceLayout, chartConfig);
   
   Plotly.newPlot(chartRightBottom, [
-    { x: [], y: [], mode: 'lines', line: { color: '#388e3c', width: 3 }, name: 'Bottom Sum' }
+    { x: [], y: [], mode: 'lines', line: { color: '#388e3c', width: 3 }, name: t('chart_right_bottom') }
   ], singleTraceLayout, chartConfig);
   
   Plotly.newPlot(chartRightCompression, [
-    { x: [], y: [], mode: 'lines', line: { color: '#c2185b', width: 3 }, name: 'Compression' }
+    { x: [], y: [], mode: 'lines', line: { color: '#c2185b', width: 3 }, name: t('chart_right_compression') }
   ], singleTraceLayout, chartConfig);
   
   // Left handle charts
   Plotly.newPlot(chartLeftTop, [
-    { x: [], y: [], mode: 'lines', line: { color: '#1976d2', width: 3 }, name: 'Top Sum' }
+    { x: [], y: [], mode: 'lines', line: { color: '#1976d2', width: 3 }, name: t('chart_left_top') }
   ], singleTraceLayout, chartConfig);
   
   Plotly.newPlot(chartLeftBottom, [
-    { x: [], y: [], mode: 'lines', line: { color: '#388e3c', width: 3 }, name: 'Bottom Sum' }
+    { x: [], y: [], mode: 'lines', line: { color: '#388e3c', width: 3 }, name: t('chart_left_bottom') }
   ], singleTraceLayout, chartConfig);
   
   Plotly.newPlot(chartLeftCompression, [
-    { x: [], y: [], mode: 'lines', line: { color: '#c2185b', width: 3 }, name: 'Compression' }
+    { x: [], y: [], mode: 'lines', line: { color: '#c2185b', width: 3 }, name: t('chart_left_compression') }
   ], singleTraceLayout, chartConfig);
 }
 
@@ -936,12 +936,12 @@ async function startReplay() {
     // Clear charts - always use default mode for replay (6 separate charts)
     const singleTraceLayout = { ...chartLayout, showlegend: false };
     
-    Plotly.react(chartRightTop, [{ x: [], y: [], mode: 'lines', line: { color: '#2196f3', width: 2 }, name: 'Top Sum' }], singleTraceLayout, chartConfig);
-    Plotly.react(chartRightBottom, [{ x: [], y: [], mode: 'lines', line: { color: '#4caf50', width: 2 }, name: 'Bottom Sum' }], singleTraceLayout, chartConfig);
-    Plotly.react(chartRightCompression, [{ x: [], y: [], mode: 'lines', line: { color: '#e91e63', width: 2 }, name: 'Compression' }], singleTraceLayout, chartConfig);
-    Plotly.react(chartLeftTop, [{ x: [], y: [], mode: 'lines', line: { color: '#2196f3', width: 2 }, name: 'Top Sum' }], singleTraceLayout, chartConfig);
-    Plotly.react(chartLeftBottom, [{ x: [], y: [], mode: 'lines', line: { color: '#4caf50', width: 2 }, name: 'Bottom Sum' }], singleTraceLayout, chartConfig);
-    Plotly.react(chartLeftCompression, [{ x: [], y: [], mode: 'lines', line: { color: '#e91e63', width: 2 }, name: 'Compression' }], singleTraceLayout, chartConfig);
+    Plotly.react(chartRightTop, [{ x: [], y: [], mode: 'lines', line: { color: '#2196f3', width: 2 }, name: t('chart_right_top') }], singleTraceLayout, chartConfig);
+    Plotly.react(chartRightBottom, [{ x: [], y: [], mode: 'lines', line: { color: '#4caf50', width: 2 }, name: t('chart_right_bottom') }], singleTraceLayout, chartConfig);
+    Plotly.react(chartRightCompression, [{ x: [], y: [], mode: 'lines', line: { color: '#e91e63', width: 2 }, name: t('chart_right_compression') }], singleTraceLayout, chartConfig);
+    Plotly.react(chartLeftTop, [{ x: [], y: [], mode: 'lines', line: { color: '#2196f3', width: 2 }, name: t('chart_left_top') }], singleTraceLayout, chartConfig);
+    Plotly.react(chartLeftBottom, [{ x: [], y: [], mode: 'lines', line: { color: '#4caf50', width: 2 }, name: t('chart_left_bottom') }], singleTraceLayout, chartConfig);
+    Plotly.react(chartLeftCompression, [{ x: [], y: [], mode: 'lines', line: { color: '#e91e63', width: 2 }, name: t('chart_left_compression') }], singleTraceLayout, chartConfig);
     
     // Don't reset to autorange - we'll use oscilloscope mode if enabled
     // For now just keep the current range from chartLayout
@@ -2733,6 +2733,19 @@ const I18N = {
     time_window: 'Time Window (s)',
     move_to_unsorted: '← Move to unsorted',
     active_profile_label: 'Profile:',
+    live_data: 'Live Data',
+    select_run: 'Select Run:',
+    no_run_selected: '-- No run selected --',
+    download_run: 'Download',
+    calibration_mode: 'Calibration',
+    calibration_mode_label: 'Calibration mode (raw ADC + force)',
+    calibration_mode_hint: 'Replaces 3D bike with raw sensor grid and streams raw values.',
+    chart_right_top: 'Right - Top',
+    chart_right_bottom: 'Right - Bottom',
+    chart_right_compression: 'Right - Compression',
+    chart_left_top: 'Left - Top',
+    chart_left_bottom: 'Left - Bottom',
+    chart_left_compression: 'Left - Compression',
   },
   fr: {
     live_mode: 'Mode Live',
@@ -2824,6 +2837,19 @@ const I18N = {
     time_window: 'Fenêtre de temps (s)',
     move_to_unsorted: '← Déplacer vers non trié',
     active_profile_label: 'Profil :',
+    live_data: 'Données en direct',
+    select_run: 'Sélectionner un run :',
+    no_run_selected: '-- Aucun run sélectionné --',
+    download_run: 'Télécharger',
+    calibration_mode: 'Calibration',
+    calibration_mode_label: 'Mode calibration (ADC brut + force)',
+    calibration_mode_hint: 'Remplace le vélo 3D par une grille de capteurs bruts et diffuse les valeurs brutes.',
+    chart_right_top: 'Droite - Dessus',
+    chart_right_bottom: 'Droite - Dessous',
+    chart_right_compression: 'Droite - Compression',
+    chart_left_top: 'Gauche - Dessus',
+    chart_left_bottom: 'Gauche - Dessous',
+    chart_left_compression: 'Gauche - Compression',
   },
   de: {
     live_mode: 'Live-Modus',
@@ -2915,6 +2941,19 @@ const I18N = {
     time_window: 'Zeitfenster (s)',
     move_to_unsorted: '← In ungesmessene verschieben',
     active_profile_label: 'Profil:',
+    live_data: 'Live-Daten',
+    select_run: 'Lauf auswählen:',
+    no_run_selected: '-- Kein Lauf ausgewählt --',
+    download_run: 'Herunterladen',
+    calibration_mode: 'Kalibrierung',
+    calibration_mode_label: 'Kalibrierungsmodus (roher ADC + Kraft)',
+    calibration_mode_hint: 'Ersetzt das 3D-Fahrrad durch ein Rohsensorraster und überträgt Rohwerte.',
+    chart_right_top: 'Rechts - Oben',
+    chart_right_bottom: 'Rechts - Unten',
+    chart_right_compression: 'Rechts - Kompression',
+    chart_left_top: 'Links - Oben',
+    chart_left_bottom: 'Links - Unten',
+    chart_left_compression: 'Links - Kompression',
   }
 };
 
@@ -3275,7 +3314,7 @@ async function loadAndPlotCSV(filename) {
       y: aggregatedData.rightTopSum.y, 
       mode: 'lines', 
       line: { color: '#1976d2', width: 3 }, 
-      name: 'Top Sum' 
+      name: t('chart_right_top')
     }], layoutCSV, chartConfig);
     
     Plotly.react(chartRightBottom, [{ 
@@ -3283,7 +3322,7 @@ async function loadAndPlotCSV(filename) {
       y: aggregatedData.rightBottomSum.y, 
       mode: 'lines', 
       line: { color: '#388e3c', width: 3 }, 
-      name: 'Bottom Sum' 
+      name: t('chart_right_bottom')
     }], layoutCSV, chartConfig);
     
     Plotly.react(chartRightCompression, [{ 
@@ -3291,7 +3330,7 @@ async function loadAndPlotCSV(filename) {
       y: aggregatedData.rightCompression.y, 
       mode: 'lines', 
       line: { color: '#c2185b', width: 3 }, 
-      name: 'Compression' 
+      name: t('chart_right_compression')
     }], layoutCSV, chartConfig);
     
     Plotly.react(chartLeftTop, [{ 
@@ -3299,7 +3338,7 @@ async function loadAndPlotCSV(filename) {
       y: aggregatedData.leftTopSum.y, 
       mode: 'lines', 
       line: { color: '#1976d2', width: 3 }, 
-      name: 'Top Sum' 
+      name: t('chart_left_top')
     }], layoutCSV, chartConfig);
     
     Plotly.react(chartLeftBottom, [{ 
@@ -3307,7 +3346,7 @@ async function loadAndPlotCSV(filename) {
       y: aggregatedData.leftBottomSum.y, 
       mode: 'lines', 
       line: { color: '#388e3c', width: 3 }, 
-      name: 'Bottom Sum' 
+      name: t('chart_left_bottom')
     }], layoutCSV, chartConfig);
     
     Plotly.react(chartLeftCompression, [{ 
@@ -3315,7 +3354,7 @@ async function loadAndPlotCSV(filename) {
       y: aggregatedData.leftCompression.y, 
       mode: 'lines', 
       line: { color: '#c2185b', width: 3 }, 
-      name: 'Compression' 
+      name: t('chart_left_compression')
     }], layoutCSV, chartConfig);
     
     // Add hover events to update heatmap based on cursor position
