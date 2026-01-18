@@ -1695,6 +1695,9 @@ window.addEventListener('load', () => {
         // Reinitialize default charts with proper colors
         initDefaultCharts();
         
+        // Apply current theme to charts
+        applyChartTheme();
+        
         // Reset sensor pressures and history
         sensorPressures = [0, 0, 0, 0, 0, 0, 0, 0];
         sensorPressureHistory = [[], [], [], [], [], [], [], []];
