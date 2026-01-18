@@ -314,7 +314,7 @@ async function loadActiveProfileAndRuns() {
     
     // Populate run selector with runs from active profile and unsorted
     if (runSelector) {
-      runSelector.innerHTML = '<option value="">-- No run selected --</option>';
+      runSelector.innerHTML = `<option value="">${t('no_run_selected')}</option>`;
       
       // Add runs from active profile first
       if (activeRunner) {
@@ -336,7 +336,7 @@ async function loadActiveProfileAndRuns() {
       const unsorted = await apiGetJSON(`/api/runs-in?runner=${encodeURIComponent(RESERVED_UNSORTED)}`);
       if (unsorted.length > 0) {
         const unsortedGroup = document.createElement('optgroup');
-        unsortedGroup.label = 'Unsorted';
+        unsortedGroup.label = t('unsorted_runs');
         for (const f of unsorted) {
           const opt = document.createElement('option');
           opt.value = f;
