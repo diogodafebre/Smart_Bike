@@ -21,8 +21,11 @@
 
 #define I2C_CLK_SPEED 400000
 
-#define ALPHA 0.99f             /*!< Weight of gyroscope */
-#define RAD_TO_DEG 57.27272727f /*!< Radians to degrees */
+#define RAD_TO_DEG 57.29577951f /*!< Radians to degrees (180/PI) */
+#define DEG_TO_RAD 0.01745329f  /*!< Degrees to radians (PI/180) */
+
+// Madgwick filter parameters
+#define MADGWICK_BETA 0.1f /*!< Filter gain - higher = faster convergence but more noise (0.04-0.1 for dynamic applications) */
 
 #define ICM42607_ID 0x60
 #define ICM42670_ID 0x67
@@ -58,6 +61,8 @@ typedef struct {
     uint32_t counter;
     float dt; /*!< delay time between two measurements, dt should be small (ms level) */
     struct timeval* timer;
+    // Madgwick filter quaternion state
+    float q0, q1, q2, q3;  /*!< Quaternion representing orientation */
 } icm42670_dev_t;
 
 /*******************************************************************************
@@ -100,6 +105,13 @@ esp_err_t icm42670_create(i2c_master_bus_handle_t i2c_bus, const uint8_t dev_add
     ESP_GOTO_ON_FALSE(dev_id == ICM42607_ID || dev_id == ICM42670_ID, ESP_ERR_NOT_FOUND, err, TAG, "Incorrect Device ID (0x%02x).", dev_id);
 
     ESP_LOGD(TAG, "Found device %s, ID: 0x%02x", (dev_id == ICM42607_ID ? "ICM42607" : "ICM42670"), dev_id);
+
+    // Initialize Madgwick quaternion to identity (no rotation)
+    sensor->q0 = 1.0f;
+    sensor->q1 = 0.0f;
+    sensor->q2 = 0.0f;
+    sensor->q3 = 0.0f;
+
     *handle_ret = sensor;
     return ret;
 
@@ -366,62 +378,171 @@ esp_err_t icm42670_read(icm42670_handle_t sensor, const uint8_t reg_start_addr, 
     return i2c_master_transmit_receive(sens->i2c_handle, reg_buff, sizeof(reg_buff), data_buf, data_len, -1);
 }
 
+/**
+ * @brief Fast inverse square root (Quake III algorithm)
+ * @param x Input value
+ * @return Approximate 1/sqrt(x)
+ */
+static float invSqrt(float x) {
+    float halfx = 0.5f * x;
+    float y = x;
+    long i = *(long*)&y;
+    i = 0x5f3759df - (i >> 1);
+    y = *(float*)&i;
+    y = y * (1.5f - (halfx * y * y));  // Newton-Raphson iteration
+    return y;
+}
+
+/**
+ * @brief Madgwick AHRS filter for orientation estimation
+ *
+ * This filter fuses accelerometer and gyroscope data to estimate orientation.
+ * It's robust against linear accelerations (braking, acceleration, bumps)
+ * which makes it ideal for dynamic applications like mountain biking.
+ *
+ * @param sensor ICM42670 sensor handle (contains quaternion state)
+ * @param acce_value Accelerometer values in g
+ * @param gyro_value Gyroscope values in degrees/second
+ * @param complimentary_angle Output roll and pitch angles in degrees
+ * @return ESP_OK on success
+ */
 esp_err_t icm42670_complimentory_filter(
     icm42670_handle_t sensor,
     const icm42670_value_t* const acce_value,
     const icm42670_value_t* const gyro_value,
     complimentary_angle_t* const complimentary_angle) {
-    float acce_angle[2];
-    float gyro_angle[2];
-    float gyro_rate[2];
-
-    complimentary_angle->roll = atan2(acce_value->y, sqrt(acce_value->x * acce_value->x + acce_value->z * acce_value->z)) * RAD_TO_DEG;
-    complimentary_angle->pitch = atan2(-acce_value->x, sqrt(acce_value->y * acce_value->y + acce_value->z * acce_value->z)) * RAD_TO_DEG;
-
-    return ESP_OK;
     icm42670_dev_t* sens = (icm42670_dev_t*)sensor;
 
+    // Calculate dt (time since last update)
     sens->counter++;
     if (sens->counter == 1) {
-        acce_angle[0] = (atan2(acce_value->y, acce_value->z) * RAD_TO_DEG);
-        acce_angle[1] = (atan2(acce_value->x, acce_value->z) * RAD_TO_DEG);
-        complimentary_angle->roll = acce_angle[0];
-        complimentary_angle->pitch = acce_angle[1];
+        // First call: initialize from accelerometer only
+        float ax = acce_value->x, ay = acce_value->y, az = acce_value->z;
+        float norm = invSqrt(ax * ax + ay * ay + az * az);
+        ax *= norm;
+        ay *= norm;
+        az *= norm;
+
+        // Initialize quaternion from accelerometer (assumes no yaw)
+        sens->q0 = sqrtf(0.5f * (1.0f + az));
+        sens->q1 = -ay / (2.0f * sens->q0);
+        sens->q2 = ax / (2.0f * sens->q0);
+        sens->q3 = 0.0f;
+
         gettimeofday(sens->timer, NULL);
+
+        complimentary_angle->roll = atan2f(ay, az) * RAD_TO_DEG;
+        complimentary_angle->pitch = atan2f(-ax, sqrtf(ay * ay + az * az)) * RAD_TO_DEG;
         return ESP_OK;
     }
 
+    // Calculate dt from timer
     struct timeval now, dt_t;
     gettimeofday(&now, NULL);
     timersub(&now, sens->timer, &dt_t);
-    sens->dt = (float)(dt_t.tv_sec) + (float)dt_t.tv_usec / 1000000;
+    float dt = (float)(dt_t.tv_sec) + (float)dt_t.tv_usec / 1000000.0f;
     gettimeofday(sens->timer, NULL);
 
-    acce_angle[0] = (atan2(acce_value->y, acce_value->z) * RAD_TO_DEG);
-    acce_angle[1] = (atan2(acce_value->x, acce_value->z) * RAD_TO_DEG);
+    // Clamp dt to reasonable values (protect against timer glitches)
+    if (dt <= 0.0f || dt > 0.1f) {
+        dt = 0.0025f;  // Default to 400Hz
+    }
 
-    gyro_rate[0] = gyro_value->x;
-    gyro_rate[1] = gyro_value->y;
-    gyro_angle[0] = gyro_rate[0] * sens->dt;
-    gyro_angle[1] = gyro_rate[1] * sens->dt;
+    // Get local copies of quaternion
+    float q0 = sens->q0, q1 = sens->q1, q2 = sens->q2, q3 = sens->q3;
 
-    // ESP_LOGI(TAG, "Comp angle before: [%.2f, %.2f]", complimentary_angle->roll, complimentary_angle->pitch);
+    // Convert gyroscope from degrees/s to radians/s
+    float gx = gyro_value->x * DEG_TO_RAD;
+    float gy = gyro_value->y * DEG_TO_RAD;
+    float gz = gyro_value->z * DEG_TO_RAD;
 
-    complimentary_angle->roll = (ALPHA * (complimentary_angle->roll + gyro_angle[0])) + ((1 - ALPHA) * acce_angle[0]);
-    complimentary_angle->pitch = (ALPHA * (complimentary_angle->pitch + gyro_angle[1])) + ((1 - ALPHA) * acce_angle[1]);
-    // ESP_LOGI(
-    //     TAG,
-    //     "dt: %.6f, AccE Angle: [%.2f, %.2f], Gyro Rate: [%.2f, %.2f], Gyro Angle: [%.2f, %.2f], Comp Angle: [%.2f, %.2f], ALPHA: %.2f",
-    //     sens->dt,
-    //     acce_angle[0],
-    //     acce_angle[1],
-    //     gyro_rate[0],
-    //     gyro_rate[1],
-    //     gyro_angle[0],
-    //     gyro_angle[1],
-    //     complimentary_angle->roll,
-    //     complimentary_angle->pitch,
-    //     ALPHA);
+    // Get accelerometer values
+    float ax = acce_value->x;
+    float ay = acce_value->y;
+    float az = acce_value->z;
+
+    // Rate of change of quaternion from gyroscope
+    float qDot1 = 0.5f * (-q1 * gx - q2 * gy - q3 * gz);
+    float qDot2 = 0.5f * (q0 * gx + q2 * gz - q3 * gy);
+    float qDot3 = 0.5f * (q0 * gy - q1 * gz + q3 * gx);
+    float qDot4 = 0.5f * (q0 * gz + q1 * gy - q2 * gx);
+
+    // Compute feedback only if accelerometer measurement valid (avoid NaN)
+    float accel_norm_sq = ax * ax + ay * ay + az * az;
+    if (accel_norm_sq > 0.01f && accel_norm_sq < 100.0f) {  // Valid range: ~0.1g to 10g
+        // Normalise accelerometer measurement
+        float recipNorm = invSqrt(accel_norm_sq);
+        ax *= recipNorm;
+        ay *= recipNorm;
+        az *= recipNorm;
+
+        // Auxiliary variables to avoid repeated arithmetic
+        float _2q0 = 2.0f * q0;
+        float _2q1 = 2.0f * q1;
+        float _2q2 = 2.0f * q2;
+        float _2q3 = 2.0f * q3;
+        float _4q0 = 4.0f * q0;
+        float _4q1 = 4.0f * q1;
+        float _4q2 = 4.0f * q2;
+        float _8q1 = 8.0f * q1;
+        float _8q2 = 8.0f * q2;
+        float q0q0 = q0 * q0;
+        float q1q1 = q1 * q1;
+        float q2q2 = q2 * q2;
+        float q3q3 = q3 * q3;
+
+        // Gradient descent algorithm corrective step
+        float s0 = _4q0 * q2q2 + _2q2 * ax + _4q0 * q1q1 - _2q1 * ay;
+        float s1 = _4q1 * q3q3 - _2q3 * ax + 4.0f * q0q0 * q1 - _2q0 * ay - _4q1 + _8q1 * q1q1 + _8q1 * q2q2 + _4q1 * az;
+        float s2 = 4.0f * q0q0 * q2 + _2q0 * ax + _4q2 * q3q3 - _2q3 * ay - _4q2 + _8q2 * q1q1 + _8q2 * q2q2 + _4q2 * az;
+        float s3 = 4.0f * q1q1 * q3 - _2q1 * ax + 4.0f * q2q2 * q3 - _2q2 * ay;
+
+        // Normalise step magnitude
+        recipNorm = invSqrt(s0 * s0 + s1 * s1 + s2 * s2 + s3 * s3);
+        s0 *= recipNorm;
+        s1 *= recipNorm;
+        s2 *= recipNorm;
+        s3 *= recipNorm;
+
+        // Apply feedback step
+        qDot1 -= MADGWICK_BETA * s0;
+        qDot2 -= MADGWICK_BETA * s1;
+        qDot3 -= MADGWICK_BETA * s2;
+        qDot4 -= MADGWICK_BETA * s3;
+    }
+
+    // Integrate rate of change of quaternion to yield quaternion
+    q0 += qDot1 * dt;
+    q1 += qDot2 * dt;
+    q2 += qDot3 * dt;
+    q3 += qDot4 * dt;
+
+    // Normalise quaternion
+    float recipNorm = invSqrt(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3);
+    q0 *= recipNorm;
+    q1 *= recipNorm;
+    q2 *= recipNorm;
+    q3 *= recipNorm;
+
+    // Store back to sensor state
+    sens->q0 = q0;
+    sens->q1 = q1;
+    sens->q2 = q2;
+    sens->q3 = q3;
+
+    // Convert quaternion to Euler angles (roll, pitch)
+    // Roll (rotation around X axis)
+    float sinr_cosp = 2.0f * (q0 * q1 + q2 * q3);
+    float cosr_cosp = 1.0f - 2.0f * (q1 * q1 + q2 * q2);
+    complimentary_angle->roll = atan2f(sinr_cosp, cosr_cosp) * RAD_TO_DEG;
+
+    // Pitch (rotation around Y axis)
+    float sinp = 2.0f * (q0 * q2 - q3 * q1);
+    if (fabsf(sinp) >= 1.0f) {
+        complimentary_angle->pitch = copysignf(90.0f, sinp);  // Use 90 degrees if out of range
+    } else {
+        complimentary_angle->pitch = asinf(sinp) * RAD_TO_DEG;
+    }
 
     return ESP_OK;
 }
