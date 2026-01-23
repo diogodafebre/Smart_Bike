@@ -1059,6 +1059,85 @@ static void init_spiffs(void) {
   }
 }
 
+/**
+ * Scans nearby WiFi networks and selects the least congested channel
+ * Analyzes channels 1, 6, 11 (non-overlapping in 2.4GHz) and picks the best one
+ * @return Best channel (1, 6, or 11)
+ */
+static uint8_t find_best_channel(void) {
+    int channel_usage[14] = {0};  // Index 1-13 for channels
+
+    wifi_scan_config_t scan_config = {
+        .ssid = NULL,
+        .bssid = NULL,
+        .channel = 0,  // Scan all channels
+        .show_hidden = true,
+        .scan_type = WIFI_SCAN_TYPE_ACTIVE,
+        .scan_time.active.min = 100,
+        .scan_time.active.max = 300
+    };
+
+    ESP_LOGI(TAG, "Scanning for best WiFi channel...");
+
+    // Temporarily use STA mode to scan
+    esp_wifi_set_mode(WIFI_MODE_STA);
+    esp_wifi_start();
+
+    esp_err_t err = esp_wifi_scan_start(&scan_config, true);  // Blocking scan
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Scan failed (%s), defaulting to channel 6", esp_err_to_name(err));
+        esp_wifi_stop();
+        return 6;
+    }
+
+    uint16_t ap_count = 0;
+    esp_wifi_scan_get_ap_num(&ap_count);
+    ESP_LOGI(TAG, "Found %d access points", ap_count);
+
+    if (ap_count > 0) {
+        wifi_ap_record_t *ap_list = malloc(ap_count * sizeof(wifi_ap_record_t));
+        if (ap_list) {
+            esp_wifi_scan_get_ap_records(&ap_count, ap_list);
+
+            // Count APs on each channel, weighted by signal strength
+            for (int i = 0; i < ap_count; i++) {
+                uint8_t ch = ap_list[i].primary;
+                if (ch >= 1 && ch <= 13) {
+                    // Stronger signals (less negative RSSI) = more interference
+                    int weight = (ap_list[i].rssi > -50) ? 3 :
+                                 (ap_list[i].rssi > -70) ? 2 : 1;
+                    channel_usage[ch] += weight;
+
+                    // Adjacent channels also cause interference (2.4GHz overlap)
+                    if (ch > 1) channel_usage[ch - 1] += weight / 2;
+                    if (ch < 13) channel_usage[ch + 1] += weight / 2;
+                }
+            }
+            free(ap_list);
+        }
+    }
+
+    esp_wifi_scan_stop();
+    esp_wifi_stop();
+
+    // Find least used among non-overlapping channels (1, 6, 11)
+    uint8_t best_channel = 6;  // Default to middle channel
+    int min_usage = channel_usage[6];
+
+    if (channel_usage[1] < min_usage) {
+        min_usage = channel_usage[1];
+        best_channel = 1;
+    }
+    if (channel_usage[11] < min_usage) {
+        best_channel = 11;
+    }
+
+    ESP_LOGI(TAG, "Channel interference scores: ch1=%d, ch6=%d, ch11=%d -> selected channel %d",
+             channel_usage[1], channel_usage[6], channel_usage[11], best_channel);
+
+    return best_channel;
+}
+
 // WiFi event handler
 static void wifi_event_handler(void* arg, esp_event_base_t event_base,
                                 int32_t event_id, void* event_data) {
@@ -1081,10 +1160,15 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
 static void init_wifi_ap(void) {
   ESP_ERROR_CHECK(esp_netif_init());
   ESP_ERROR_CHECK(esp_event_loop_create_default());
-  esp_netif_create_default_wifi_ap();
 
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
   ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+  // Scan for best channel BEFORE creating AP interface
+  uint8_t best_channel = find_best_channel();
+
+  // Now create AP interface
+  esp_netif_create_default_wifi_ap();
 
   ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
                                                       ESP_EVENT_ANY_ID,
@@ -1095,7 +1179,7 @@ static void init_wifi_ap(void) {
   wifi_config_t wifi_config = {};
   memcpy(wifi_config.ap.ssid, "SmartBike", strlen("SmartBike"));
   wifi_config.ap.ssid_len = strlen("SmartBike");
-  wifi_config.ap.channel = 1;
+  wifi_config.ap.channel = best_channel;  // Use auto-selected channel
   wifi_config.ap.password[0] = '\0';
   wifi_config.ap.max_connection = 4;
   wifi_config.ap.authmode = WIFI_AUTH_OPEN;
@@ -1113,7 +1197,7 @@ static void init_wifi_ap(void) {
     ESP_LOGW(TAG, "Failed to initialize WiFi TX power: %s", esp_err_to_name(power_err));
   }
 
-  ESP_LOGI(TAG, "WiFi AP started. SSID: %s", AP_SSID);
+  ESP_LOGI(TAG, "WiFi AP started. SSID: %s, Channel: %d", AP_SSID, best_channel);
   ESP_LOGI(TAG, "AP IP: 192.168.4.1");
 }
 
