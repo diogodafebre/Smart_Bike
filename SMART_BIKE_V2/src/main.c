@@ -2,18 +2,18 @@
 // Coordinates capture library (sensors, IMU, SD) and web server module
 
 #include <capture.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+
 #include "esp_log.h"
 #include "esp_task_wdt.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 // Forward declaration for web_init
 void web_init(void);
 
-static const char *TAG = "SMART_BIKE_MAIN";
+static const char* TAG = "SMART_BIKE_MAIN";
 
-void app_main(void)
-{
+void app_main(void) {
     // Completely disable Task Watchdog (avoids DEADC0DE messages)
     esp_task_wdt_deinit();
 
@@ -23,11 +23,11 @@ void app_main(void)
     // Initialize capture system FIRST (FSR sensors, IMU, SD card)
     ESP_LOGI(TAG, "Initializing capture system...");
     cpt_init();
-    
+
     // Then initialize web server module (WiFi + HTTP server)
     // This order ensures SD card is mounted before webserver might try to access it
     web_init();
-    
+
     // Start capture task (handles sensor reading, SD writing, button, LED)
     ESP_LOGI(TAG, "Starting capture task...");
     cpt_start_task();
