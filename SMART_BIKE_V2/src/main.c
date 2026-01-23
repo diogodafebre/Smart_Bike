@@ -17,9 +17,6 @@ void app_main(void) {
     // Completely disable Task Watchdog (avoids DEADC0DE messages)
     esp_task_wdt_deinit();
 
-    // TOTO REMOVE : Juste a delay to see logs clearly at startup
-    vTaskDelay(pdMS_TO_TICKS(5000));
-
     ESP_LOGI(TAG, "=== SMART BIKE V2 ===");
     ESP_LOGI(TAG, "Initializing integrated system...");
 
